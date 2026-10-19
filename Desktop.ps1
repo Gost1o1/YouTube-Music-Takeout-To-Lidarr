@@ -37,7 +37,7 @@ function New-Button($text,$x,$y,$w,$handler){
  $b.Add_Click($handler);$script:form.Controls.Add($b);return $b
 }
 $script:form=New-Object System.Windows.Forms.Form
-$script:form.Text='YouTube Music Takeout to Lidarr  |  v0.5.4'
+$script:form.Text='YouTube Music Takeout to Lidarr  |  v0.5.6'
 $script:form.Size=New-Object System.Drawing.Size(1100,770)
 $script:form.StartPosition='CenterScreen';$script:form.MinimumSize=New-Object System.Drawing.Size(850,650)
 $script:form.Font=New-Object System.Drawing.Font('Segoe UI',10)
@@ -166,7 +166,7 @@ $script:wizard.Controls.Add($script:wizardHeading)
 
 $script:wizardText=New-Object System.Windows.Forms.Label
 $script:wizardText.Font=New-Object System.Drawing.Font('Segoe UI',11)
-$script:wizardText.Size=New-Object System.Drawing.Size(820,96)
+$script:wizardText.Size=New-Object System.Drawing.Size(820,380)
 $script:wizardText.TextAlign='TopCenter'
 $script:wizard.Controls.Add($script:wizardText)
 
@@ -189,20 +189,25 @@ function Layout-Wizard {
  $buttonX=[int](($panelWidth-360)/2)
  $progX=[int](($panelWidth-260)/2)
  $script:wizardProgress.Location=New-Object System.Drawing.Point($progX,46)
- $script:wizardHeading.Location=New-Object System.Drawing.Point($centerX,110)
+ $script:wizardHeading.Location=New-Object System.Drawing.Point($centerX,90)
  if($script:wizardStage -eq 0){
   $script:wizardMain.Location=New-Object System.Drawing.Point($buttonX,245)
   $script:wizardSkip.Location=New-Object System.Drawing.Point($buttonX,309)
+ } elseif($script:wizardStage -eq 1){
+  $script:wizardText.Location=New-Object System.Drawing.Point($textX,164)
+  $script:wizardMain.Location=New-Object System.Drawing.Point($buttonX,575)
+  $script:wizardNext.Location=New-Object System.Drawing.Point($buttonX,635)
  } else {
-  $script:wizardText.Location=New-Object System.Drawing.Point($textX,185)
-  $script:wizardMain.Location=New-Object System.Drawing.Point($buttonX,320)
-  $script:wizardNext.Location=New-Object System.Drawing.Point($buttonX,384)
+  $script:wizardText.Location=New-Object System.Drawing.Point($textX,205)
+  $script:wizardMain.Location=New-Object System.Drawing.Point($buttonX,390)
+  $script:wizardNext.Location=New-Object System.Drawing.Point($buttonX,455)
  }
 }
 $script:wizard.Add_Resize({Layout-Wizard})
 
 function Set-WizardStage([int]$stage){
  $script:wizardStage=$stage
+ $script:wizardMain.Visible=$true;$script:wizardNext.Visible=$true;$script:wizardSkip.Visible=$false
  switch($stage){
   0 {
    $script:wizardProgress.Value=33
@@ -216,59 +221,91 @@ function Set-WizardStage([int]$stage){
   1 {
    $script:wizardProgress.Value=66
    $script:wizardText.Visible=$true
-   $script:wizardHeading.Text='Request your YouTube Music export'
-   $script:wizardText.Text='Google Takeout will open with YouTube and YouTube Music preselected. On Google''s page keep these settings: send download link via email, export once, ZIP, and 50 GB. Then click Create export.'
-   $script:wizardMain.Text='Open Google Takeout'
-   $script:wizardNext.Visible=$true
-   $script:wizardNext.Text='Export Requested - Continue'
-   $script:wizardSkip.Visible=$false
+   $script:wizardHeading.Text='Prepare Your YouTube Music Export'
+   $script:wizardText.Text=@'
+You're about to be directed to Google Takeout to download a copy of your YouTube Music library.
+
+On Google's website, click Next step, then change the File size to 50 GB.
+
+Don't worry! Your music library metadata is likely much smaller than 50 GB. Song titles, artist names, and links may only take up a few megabytes. Uploaded media can make the export larger.
+
+Google may take several minutes to several days to prepare your export; smaller exports are often ready within minutes.
+
+You'll receive an email confirming that your export was requested.
+
+You'll receive a second email with a link when your export is ready to download.
+
+While the prepared archive is available, you can download it again from Google Takeout without waiting for a new export.
+'@
+   $script:wizardMain.Text='Continue to Google Takeout'
+   $script:wizardNext.Text='Back'
   }
   2 {
    $script:wizardProgress.Value=100
    $script:wizardText.Visible=$true
-   $script:wizardHeading.Text='Wait for Google to prepare your export'
-   $script:wizardText.Text='When Google emails that your export is ready, download the ZIP. Then continue here so the app can locate the newest Takeout file or let you choose it manually.'
-   $script:wizardMain.Text='Find the Ready Email in Gmail'
-   $script:wizardNext.Visible=$true
-   $script:wizardNext.Text='Find My Downloaded ZIP'
-   $script:wizardSkip.Visible=$false
+   $script:wizardHeading.Text='Find Your Downloaded Music Data'
+   $script:wizardText.Text='Once Google has prepared your export, download the ZIP archive. Click Scan for Takeout File to search your Downloads folder. If a valid archive cannot be found, the Windows file picker will open so you can select it manually.'
+   $script:wizardMain.Text='Scan for Takeout File'
+   $script:wizardNext.Text='Back'
   }
  }
  Layout-Wizard
 }
+function Test-TakeoutZip([string]$path){
+ if(-not (Test-Path -LiteralPath $path -PathType Leaf)){return $false}
+ try{
+  Add-Type -AssemblyName System.IO.Compression -ErrorAction SilentlyContinue
+  Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction SilentlyContinue
+  $archive=[System.IO.Compression.ZipFile]::OpenRead($path)
+  try {
+   foreach($entry in $archive.Entries){
+    $name=($entry.FullName -replace '\\','/').ToLowerInvariant()
+    if($name -match '(^|/)(music library songs|music library albums|music library artists)\.csv$' -or $name -match '(^|/)youtube and youtube music/.*\.csv$') {return $true}
+   }
+   return $false
+  } finally {$archive.Dispose()}
+ } catch {return $false}
+}
+function Select-TakeoutFromPicker {
+ $picker=New-Object System.Windows.Forms.OpenFileDialog
+ $picker.Title='Choose your Google Takeout ZIP'
+ $picker.Filter='ZIP archives (*.zip)|*.zip'
+ $dl=Join-Path $env:USERPROFILE 'Downloads'
+ if(Test-Path $dl){$picker.InitialDirectory=$dl}
+ try {
+  if($picker.ShowDialog() -ne [System.Windows.Forms.DialogResult]::OK){return}
+  if(-not (Test-TakeoutZip $picker.FileName)){Alert 'This ZIP does not appear to contain a recognized YouTube Music library CSV. Select a different Google Takeout ZIP.';return}
+  $script:sourceBox.Text=$picker.FileName
+  $script:wizard.Hide()
+  Info 'Takeout archive selected. Click Analyze Takeout to begin.'
+ } finally {$picker.Dispose()}
+}
 $script:wizardMain.Add_Click({
  switch($script:wizardStage){
-  0 {Start-Process 'https://accounts.google.com/AccountChooser'}
-  1 {Start-Process 'https://takeout.google.com/settings/takeout/custom/youtube'}
-  2 {Start-Process 'https://mail.google.com/mail/u/0/#search/from%3A(noreply%40google.com)+subject%3A%22Your+Google+data+is+ready+to+download%22'}
+  0 {Set-WizardStage 1}
+  1 {Start-Process 'https://takeout.google.com/settings/takeout/custom/youtube';Set-WizardStage 2}
+  2 {
+   $dl=Join-Path $env:USERPROFILE 'Downloads'
+   $files=@(Get-ChildItem -LiteralPath $dl -Filter 'takeout*.zip' -File -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending)
+   $found=$false
+   foreach($candidate in $files){
+    if(-not (Test-TakeoutZip $candidate.FullName)){continue}
+    $found=$true
+    $ans=[System.Windows.Forms.MessageBox]::Show(('Use this Takeout archive?'+[Environment]::NewLine+$candidate.FullName),'Takeout archive found',[System.Windows.Forms.MessageBoxButtons]::YesNo,[System.Windows.Forms.MessageBoxIcon]::Question)
+    if($ans -eq [System.Windows.Forms.DialogResult]::Yes){
+     $script:sourceBox.Text=$candidate.FullName;$script:wizard.Hide()
+     Info 'Takeout archive found. Click Analyze Takeout to begin.'
+     return
+    }
+    break
+   }
+   if(-not $found){Info 'No recognizable Takeout music archive found in Downloads. Opening file picker.'}
+   Select-TakeoutFromPicker
+  }
  }
 })
-$script:wizardNext.Add_Click({
- if($script:wizardStage -lt 2){Set-WizardStage ($script:wizardStage+1);return}
- $dl=Join-Path $env:USERPROFILE 'Downloads'
- $files=@(Get-ChildItem -LiteralPath $dl -Filter 'takeout*.zip' -File -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending)
- if($files.Count -eq 0){
-  $picker=New-Object System.Windows.Forms.OpenFileDialog
-  $picker.Title='Choose the Google Takeout ZIP';$picker.Filter='ZIP archives (*.zip)|*.zip|All files (*.*)|*.*';$picker.InitialDirectory=$dl
-  if($picker.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK){$script:sourceBox.Text=$picker.FileName;$script:wizard.Hide();Info 'Takeout archive selected. Click Analyze Takeout.'}
-  $picker.Dispose();return
- }
- $candidate=$files[0]
- $ans=[System.Windows.Forms.MessageBox]::Show(('Use this Takeout archive?'+[Environment]::NewLine+$candidate.FullName),'Confirm Takeout ZIP',[System.Windows.Forms.MessageBoxButtons]::YesNo,[System.Windows.Forms.MessageBoxIcon]::Question)
- if($ans -eq [System.Windows.Forms.DialogResult]::Yes){$script:sourceBox.Text=$candidate.FullName;$script:wizard.Hide();Info 'Takeout archive selected. Click Analyze Takeout.'}
- else {
-  $picker=New-Object System.Windows.Forms.OpenFileDialog;$picker.Filter='ZIP archives (*.zip)|*.zip|All files (*.*)|*.*';$picker.InitialDirectory=$dl
-  if($picker.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK){$script:sourceBox.Text=$picker.FileName;$script:wizard.Hide();Info 'Takeout archive selected. Click Analyze Takeout.'}
-  $picker.Dispose()
- }
-})
-$script:wizardSkip.Add_Click({
- $picker=New-Object System.Windows.Forms.OpenFileDialog
- $picker.Title='Choose an existing Google Takeout ZIP';$picker.Filter='ZIP archives (*.zip)|*.zip|All files (*.*)|*.*'
- $picker.InitialDirectory=Join-Path $env:USERPROFILE 'Downloads'
- if($picker.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK){$script:sourceBox.Text=$picker.FileName;$script:wizard.Hide();Info 'Takeout archive selected. Click Analyze Takeout.'}
- $picker.Dispose()
-})
+$script:wizardNext.Add_Click({if($script:wizardStage -eq 2){Set-WizardStage 1}else{Set-WizardStage 0}})
+$script:wizardSkip.Add_Click({Select-TakeoutFromPicker})
 Set-WizardStage 0
 $script:form.Add_Shown({Layout-Wizard})
 if($InputPath -and (Test-Path -LiteralPath $InputPath)){$script:wizard.Hide()}
