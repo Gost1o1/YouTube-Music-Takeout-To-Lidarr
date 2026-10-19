@@ -21,6 +21,17 @@ function Get-TakeoutCandidates {
         } | Sort-Object LastWriteTime -Descending | Select-Object -First 12)
     return $items
 }
+function Select-TakeoutFile {
+    try {
+        Add-Type -AssemblyName System.Windows.Forms
+        $dlg = New-Object System.Windows.Forms.OpenFileDialog
+        $dlg.Title = 'Select the Google Takeout ZIP archive'
+        $dlg.Filter = 'ZIP archives (*.zip)|*.zip|All files (*.*)|*.*'
+        $dlg.InitialDirectory = Get-TakeoutDownloadsDirectory
+        if ($dlg.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { return $dlg.FileName }
+    } catch { Write-Warning 'Windows file picker unavailable; paste a path using option 3.' }
+    return ''
+}
 function Resolve-TakeoutInput {
     param([string]$ProvidedPath, [string]$OutputRoot, [switch]$NoPrompt)
     $statePath = Join-Path $OutputRoot 'last-takeout-path.json'
@@ -37,15 +48,23 @@ function Resolve-TakeoutInput {
             if ($obj.Path -and (Test-Path -LiteralPath ([string]$obj.Path))) { $previous = [string]$obj.Path }
         } catch { }
     }
+    # Launch Takeout immediately for first-time users; after returning, discover local ZIPs.
+    if (-not $previous) {
+        try { Start-Process 'https://takeout.google.com/settings/takeout' } catch {}
+        Write-Host 'Google Takeout opened. Request YouTube and YouTube Music data, then download the export ZIP.'
+        Write-Host 'Press Enter when download is ready (or Q to save and exit).'
+        $first = Read-Host 'Continue'
+        if ($first -ieq 'Q') { return '' }
+    }
     while ($true) {
         Write-Host "`n=== GOOGLE TAKEOUT SETUP ===" -ForegroundColor Cyan
-        Write-Host '1. Open official Google Takeout export page (default)'
-        Write-Host '2. Find Takeout ZIPs and folders in Downloads'
-        Write-Host '3. Paste an existing ZIP or extracted folder path'
+        Write-Host '1. Open official Google Takeout export page'
+        Write-Host '2. Find Takeout ZIPs in Downloads (default)'
+        Write-Host '3. Choose a ZIP using Windows File Explorer, or paste folder path'
         if ($previous) { Write-Host '4. Resume using the last selected export' }
         Write-Host 'Q. Save your place and exit; run the same command later'
-        $choice = (Read-Host 'Choose [Enter=1]').Trim()
-        if (-not $choice) { $choice = '1' }
+        $choice = (Read-Host 'Choose [Enter=2]').Trim()
+        if (-not $choice) { $choice = '2' }
         $found = ''
         switch ($choice.ToUpperInvariant()) {
             '1' {
@@ -64,7 +83,8 @@ function Resolve-TakeoutInput {
             }
             '2' { }
             '3' {
-                $candidate = (Read-Host 'Paste the full ZIP or folder path').Trim().Trim('"')
+                $candidate = Select-TakeoutFile
+                if (-not $candidate) { $candidate = (Read-Host 'Paste the full ZIP or folder path').Trim().Trim('"') }
                 if ($candidate -and (Test-Path -LiteralPath $candidate)) { $found = (Resolve-Path -LiteralPath $candidate).Path }
                 else { Write-Warning 'File/folder not found. You can try again.' }
             }
@@ -77,16 +97,20 @@ function Resolve-TakeoutInput {
         }
         if ($choice -eq '2' -and -not $found) {
             # Scan even when the user arrived here by pressing Enter after Takeout instructions.
-            $items = @(Get-TakeoutCandidates)
+            $items = @(Get-TakeoutCandidates | Where-Object { $_.Name -match '(?i)^takeout([-.]|$)' })
             Write-Host "`nDownloads directory: $(Get-TakeoutDownloadsDirectory)"
             if ($items.Count -eq 0) {
-                Write-Warning 'No likely Takeout archive found yet. Try again later or select option 3.'
+                Write-Warning 'No Takeout-named ZIP/folder in Downloads. Opening the Windows file picker.'
+                $picker = Select-TakeoutFile
+                if ($picker) { $found = $picker }
             } else {
                 for ($i=0; $i -lt $items.Count; $i++) {
                     $type = if ($items[$i].PSIsContainer) { 'FOLDER' } else { 'ZIP' }
                     Write-Host ("{0}. [{1}] {2} ({3})" -f ($i+1),$type,$items[$i].Name,$items[$i].LastWriteTime.ToString('yyyy-MM-dd HH:mm'))
                 }
-                $pick = (Read-Host 'Enter number to select (Enter to return)').Trim()
+                Write-Host 'Press Enter for the newest Takeout archive, or type a number to choose another.'
+                $pick = (Read-Host 'Archive [Enter=1]').Trim()
+                if (-not $pick) { $pick = '1' }
                 $number = 0
                 if ([int]::TryParse($pick,[ref]$number) -and $number -ge 1 -and $number -le $items.Count) { $found = $items[$number-1].FullName }
             }

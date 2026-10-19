@@ -55,6 +55,10 @@ try {
     $source = Resolve-TakeoutInput -ProvidedPath $InputPath -OutputRoot $OutputRoot -NoPrompt:$NoPrompt
     if (-not $source) { Write-Host 'Takeout setup paused. Relaunch whenever your export is ready.'; return }
     Write-Host "Source: $source"
+    $progressPath = Join-Path $runFolder 'progress.html'
+    $progressBody = '<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="refresh" content="4"><title>Importing Google Takeout</title><style>body{font:20px system-ui;margin:5rem auto;max-width:700px;color:#233}</style></head><body><h1>YouTube Music Takeout to Lidarr</h1><p>Auditing the selected archive. Please keep PowerShell open.</p><p>This page updates automatically. No downloads or Lidarr changes will be requested.</p></body></html>'
+    [IO.File]::WriteAllText($progressPath,$progressBody,[Text.Encoding]::UTF8)
+    if (-not $NoPrompt) { Start-Process -FilePath $progressPath }
     if ((Test-Path -LiteralPath $source -PathType Leaf) -and $source -match '\.zip$') {
         Write-Host 'Extracting ZIP to temporary workspace...'
         Expand-Archive -LiteralPath $source -DestinationPath $tempFolder -Force
@@ -81,12 +85,16 @@ try {
         if ($rows.Count -eq 0) { $fileKinds[$file.FullName].Classification='EMPTY_CSV'; continue }
         $fileKinds[$file.FullName].Records=$rows.Count
         $names = @($rows[0].PSObject.Properties.Name)
-        $artistCols = @('Artist','Artists','Artist Name','Channel Title','Channel Name','Creator')
-        $songCols = @('Song','Title','Track','Track Name','Video Title','Playlist Video Title','Name')
+        $artistCols = @('Artist','Artists','Artist Name','Artist Name 1','Channel Title','Creator')
+        $songCols = @('Song Title','Song','Track Title','Track Name','Video Title','Playlist Video Title')
         $hasArtist = @($names | Where-Object { $artistCols -icontains $_ }).Count -gt 0
         $hasSong = @($names | Where-Object { $songCols -icontains $_ }).Count -gt 0
         $fileKinds[$file.FullName].Columns=($names -join ' | ')
         if (-not $hasSong) { $fileKinds[$file.FullName].Classification='NON_TRACK_CSV'; continue }
+        # Only dedicated music-library or upload metadata exports are canonical song sources.
+        # Clips, subscriptions, general videos and playlists are NOT interchangeable with songs.
+        $dedicatedMusic = $file.FullName -match '(?i)[\\/]music \(library and uploads\)[\\/](music library songs|music uploads metadata)\.csv$'
+        if (-not $dedicatedMusic) { $fileKinds[$file.FullName].Classification='NOT_MUSIC_LIBRARY'; continue }
         # A generic 'Title' column may contain YouTube comments, activity, or other records.
         # Require either a recognizable music path, an artist field, or a video identifier.
         $isMusicPath = $file.FullName -match '(?i)music|playlist|liked.?songs|library'
@@ -100,6 +108,8 @@ try {
         foreach ($r in $rows) {
             $title = Decode-TakeoutCell (Get-Prop $r $songCols)
             $artist = Decode-TakeoutCell (Get-Prop $r $artistCols)
+            $allArtists = @($r.PSObject.Properties | Where-Object { $_.Name -match '^Artist Name \d+$' } | Sort-Object { [int]($_.Name -replace '^Artist Name ','') } | ForEach-Object { Decode-TakeoutCell ([string]$_.Value) } | Where-Object { $_ })
+            if ($allArtists.Count -gt 0) { $artist = ($allArtists -join ' & ') }
             $videoId = Get-Prop $r @('Video ID','VideoId','YouTube Video ID','Youtube Video ID')
             $url = Get-Prop $r @('Video URL','Video Url','URL','Link','YouTube URL')
             if (-not $videoId -and $url -match '(?:v=|youtu\.be/|/shorts/)([A-Za-z0-9_-]{11})') { $videoId=$Matches[1] }
@@ -112,7 +122,7 @@ try {
             $seen[$key]=$true
             $fileKinds[$file.FullName].IncludedTracks++
             $songs.Add([pscustomobject]@{
-                Artist=$artist; Song=$title; VideoId=$videoId; YouTubeUrl=$youtube
+                Artist=$artist; Song=$title; Album=(Get-Prop $r @('Album Title','Album')); VideoId=$videoId; YouTubeUrl=$youtube
                 SourceFile=$file.Name; MatchStatus='NOT_CHECKED'; DownloadRequested='NO'
             })
         }
@@ -122,6 +132,7 @@ try {
     $sourcePath = Join-Path $runFolder 'source-files.csv'
     @($fileKinds.Values | Sort-Object RelativePath) | Export-Csv -LiteralPath $sourcePath -NoTypeInformation -Encoding UTF8
     $unknownFileCount = @($fileKinds.Values | Where-Object { $_.Extension -match '(?i)^\.(html?|json)$' }).Count
+    $uploadedAudioCount = @($fileKinds.Values | Where-Object { $_.RelativePath -match '(?i)music \(library and uploads\)' -and $_.Extension -match '(?i)^\.(mp3|m4a|flac|wav|ogg)$' }).Count
     $unconfirmed = @($fileKinds.Values | Where-Object { $_.Classification -eq 'GENERIC_TITLES_NOT_CONFIRMED_MUSIC' }).Count
     if ($unconfirmed -gt 0) { Write-Warning "Skipped $unconfirmed CSVs with generic titles but no reliable evidence they describe music. See source-files.csv." }
     if ($unknownFileCount -gt 0) { Write-Warning "Found $unknownFileCount HTML/JSON files. This parser does not yet read them. See source-files.csv." }
@@ -171,9 +182,9 @@ try {
     $sb = New-Object System.Text.StringBuilder
     [void]$sb.AppendLine('<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Music Takeout Toolkit</title><style>body{font:16px system-ui,Segoe UI,sans-serif;max-width:1100px;margin:36px auto;padding:0 16px;color:#242936}a{color:#135ebc}.stats{display:flex;gap:12px;flex-wrap:wrap}.stat,.panel{border:1px solid #ddd;border-radius:12px;padding:16px;margin:12px 0}.stat b{display:block;font-size:28px}small{color:#616b78}table{border-collapse:collapse;width:100%;font-size:13px}th,td{border-bottom:1px solid #e4e6e8;padding:8px;text-align:left;word-break:break-word}input{padding:10px;max-width:100%;width:450px}.scroll{overflow:auto;max-height:520px}</style></head><body>')
     [void]$sb.AppendLine('<h1>YouTube Music Takeout to Lidarr</h1><p><small>Local audit. No downloads, no Lidarr changes, no file moves.</small></p>')
-    [void]$sb.AppendLine('<div class="stats"><div class="stat"><b>'+$songs.Count+'</b>Candidate title rows (not necessarily music)</div><div class="stat"><b>'+$artistSet.Count+'</b>Artist credits</div><div class="stat"><b>'+$withVideo+'</b>Valid YouTube IDs</div><div class="stat"><b>'+$scanned+'</b>Recognized CSV files</div></div>')
+    [void]$sb.AppendLine('<div class="stats"><div class="stat"><b>'+$songs.Count+'</b>Music library track records</div><div class="stat"><b>'+$artistSet.Count+'</b>Artist credits</div><div class="stat"><b>'+$withVideo+'</b>Valid YouTube IDs</div><div class="stat"><b>'+$scanned+'</b>Recognized CSV files</div><div class="stat"><b>'+$uploadedAudioCount+'</b>Exported audio files (not processed)</div></div>')
     [void]$sb.AppendLine('<div class="panel"><h2>What you can do next</h2><p><a href="https://takeout.google.com/settings/takeout">Get a new Google Takeout export</a> | Review the local tracks.csv and artists.csv | Use optional-youtube-queue.csv to review original source videos | Connect Lidarr for a read-only name comparison | Download your own or authorized content separately.</p><p><strong>Nothing has been downloaded.</strong> Name matches are not proof of a specific recording. Your Takeout format may contain other music records not recognized by this CSV-only version.</p><p>Lidarr: '+(Html $lidarrState)+'; artist count: '+$(if($lidarrCount -ge 0){$lidarrCount}else{'not checked'})+'; matched track rows: '+$countKnown+'; missing-by-name track rows: '+$countMissing+'.</p></div>')
-    [void]$sb.AppendLine('<div class="panel"><h2>Source coverage and limitations</h2><p>Selected archive: '+(Html ([IO.Path]::GetFileName($source)))+'. Files in archive: '+$allFiles.Count+'. CSVs accepted as potential music data: '+$scanned+'. HTML/JSON files requiring additional parsers: '+$unknownFileCount+'. Generic-title CSVs held out: '+$unconfirmed+'. See <strong>source-files.csv</strong> for every file and its classification. These numbers describe only this selected export, not every item in a user account or prior Lidarr state.</p></div>')
+    [void]$sb.AppendLine('<div class="panel"><h2>Source coverage and limitations</h2><p>Selected archive: '+(Html ([IO.Path]::GetFileName($source)))+'. Files in archive: '+$allFiles.Count+'. CSVs accepted as potential music data: '+$scanned+'. HTML/JSON files requiring additional parsers: '+$unknownFileCount+'. Uploaded audio files detected: '+$uploadedAudioCount+'. Generic-title CSVs held out: '+$unconfirmed+'. See <strong>source-files.csv</strong> for every file and its classification. These numbers describe only this selected export, not every item in a user account or prior Lidarr state.</p></div>')
     if ($weakMetadata) { [void]$sb.AppendLine('<div class="panel"><h2>Incomplete source metadata</h2><p>These rows contain titles but no recognizable artist credits or YouTube video IDs. The inventory is <strong>not a complete music-library match</strong>. Inspect the selected Takeout archive and its file types before requesting Lidarr searches.</p></div>') }
     [void]$sb.AppendLine('<div class="panel"><h2>Saved songs</h2><input id="find" type="search" placeholder="Search artist or song" oninput="filterRows()"><div class="scroll"><table id="tracks"><thead><tr><th>Artist</th><th>Song</th><th>Match status</th><th>Source video</th></tr></thead><tbody>')
     foreach($s in $songs) {
@@ -182,10 +193,14 @@ try {
     }
     [void]$sb.AppendLine('</tbody></table></div></div><script>function filterRows(){var q=document.getElementById("find").value.toLowerCase();document.querySelectorAll("#tracks tbody tr").forEach(function(r){r.hidden=!r.textContent.toLowerCase().includes(q)})}</script></body></html>')
     [IO.File]::WriteAllText($reportPath,$sb.ToString(),(New-Object System.Text.UTF8Encoding($false)))
+    # The open progress tab switches to final results, without a second browser launch.
+    $targetUri = 'file:///' + ($reportPath -replace '\\','/') -replace ' ', '%20'
+    [IO.File]::WriteAllText($progressPath,('<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="refresh" content="0;url=' + $targetUri + '"></head><body><a href="' + $targetUri + '">Open completed dashboard</a></body></html>'),[Text.Encoding]::UTF8)
     Write-Host "`n===== MUSIC TAKEOUT SUMMARY =====" -ForegroundColor Cyan
-    Write-Host "Candidate title rows: $($songs.Count)"
+    Write-Host "Music library track records: $($songs.Count)"
     Write-Host "Artist credits: $($artistSet.Count)"
     Write-Host "Source video IDs: $withVideo"
+    Write-Host "Uploaded audio files detected: $uploadedAudioCount (not imported or moved)"
     Write-Host "Recognized CSV files: $scanned"
     Write-Host "Archive files audited: $($allFiles.Count); unsupported HTML/JSON: $unknownFileCount"
     Write-Host "Full file inventory: $sourcePath"

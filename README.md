@@ -1,37 +1,39 @@
 # YouTube Music Takeout to Lidarr
 
-A Windows PowerShell tool for reviewing a Google Takeout export of YouTube Music data, comparing recognizable tracks with Lidarr, and exporting unmatched source links. This is an early, read-only-by-default version (v0.3.3). **It does not automatically download music or import new artists.** Album searches in Lidarr require explicit confirmation.
+Inventory a **fresh Google Takeout music library**, then review exact artist/track matches in your own Lidarr instance. No account-specific paths, Docker dependency, or embedded credentials.
 
-## Start with one command
+## One-command launch (Windows PowerShell)
 
-Open **Windows PowerShell** (Administrator is **not** required), copy this entire command, paste it once, and press Enter:
+Paste this entire line into **regular Windows PowerShell**. Review the repository before running downloaded code:
 
 ```powershell
-$u='https://github.com/Gost1o1/YouTube-Music-Takeout-To-Lidarr/archive/refs/heads/main.zip'; $d=Join-Path $env:TEMP ('YTMusic-'+[guid]::NewGuid().ToString('N')); try { New-Item -ItemType Directory -Path $d -Force -ErrorAction Stop | Out-Null; Invoke-WebRequest -Uri $u -OutFile "$d\app.zip" -UseBasicParsing -ErrorAction Stop; Expand-Archive -LiteralPath "$d\app.zip" -DestinationPath "$d\app" -ErrorAction Stop; $s=Get-ChildItem "$d\app" -Filter Start.ps1 -Recurse | Select-Object -First 1; if (-not $s) { throw 'Start.ps1 not found' }; & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $s.FullName } finally { Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction SilentlyContinue }
+$u='https://github.com/Gost1o1/YouTube-Music-Takeout-To-Lidarr/archive/refs/heads/main.zip';$d=Join-Path $env:TEMP ('YTMusic-'+[guid]::NewGuid().ToString('N'));try{New-Item -ItemType Directory -Path $d -Force|Out-Null;Invoke-WebRequest -Uri $u -OutFile "$d\app.zip" -UseBasicParsing -ErrorAction Stop;Expand-Archive -LiteralPath "$d\app.zip" -DestinationPath "$d\app" -ErrorAction Stop;$s=Get-ChildItem "$d\app" -Filter Start.ps1 -Recurse|Select-Object -First 1;if(-not $s){throw 'Start.ps1 not found'};powershell.exe -NoProfile -ExecutionPolicy Bypass -File $s.FullName}finally{Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction SilentlyContinue}
 ```
 
-The launcher downloads the current project to a temporary directory, opens its interactive menu, and removes only the temporary application copy when you exit. It does not change PowerShell's permanent execution policy. **Review this repository's code before running software fetched from the internet.**
+The process-level execution-policy bypass does **not** change your persistent Windows policy. Administrator access is **not required**. Production releases should pin verified tags/checksums rather than the changing `main` branch.
 
-## What happens next
+## How it works
 
-1. Open [Google Takeout](https://takeout.google.com/settings/takeout) from the setup menu and request a **YouTube and YouTube Music** export.
-2. Once Google makes the export available, download its ZIP file(s). Return to the tool to search Downloads or choose another folder.
-3. Review the inventory dashboard and its source-file coverage report. Some Takeout exports include formats this version cannot fully parse, so an incomplete inventory is not a complete music library.
-4. Optionally connect to your own Lidarr server and **preview** album searches. Any search request requires explicit confirmation; Lidarr may acquire whole albums rather than exact tracks.
-5. Export unmatched songs and available original YouTube Music links for separate review. Nothing is downloaded from YouTube by default.
+1. Opens [Google Takeout](https://takeout.google.com/settings/takeout). Choose **YouTube and YouTube Music** and request your export. Google processes the request; the app does not request exports on your behalf.
+2. After the ZIP is downloaded, press Enter. The tool detects `takeout-*.zip` in Downloads; if not found, a Windows file picker opens. The user confirms which archive to use.
+3. The chosen ZIP is extracted in a **temporary folder**. Source inventory is rebuilt from this archive every run; nothing is reused from earlier Lidarr matching sessions.
+4. The progress page opens and redirects to the local dashboard when complete. Results are preserved under Documents/MusicTakeoutToolkit.
+5. Optionally connect your own Lidarr instance for **read-only track review**. Album searches require two explicit approvals. Lidarr may download complete albums rather than individual songs.
+6. Unmatched songs with known source video IDs are exported as reviewable YouTube Music links, not automatically downloaded.
 
-Reports are saved in `Documents\MusicTakeoutToolkit`. Your original Takeout files are not deleted. Do not upload private Takeout exports or API keys to GitHub.
+## Supported export data (v0.4.0)
 
-## Diagnosing incomplete exports
+- `music (library and uploads)/music library songs.csv`: **Song Title**, **Album Title**, **Artist Name 1..N**, **Video ID**. Multiple artists are retained as a collaboration credit; these names may need individual identity resolution before Lidarr matching.
+- `music uploads metadata.csv`: artist, song, album metadata; doesn't prove audio was downloaded.
+- Uploaded audio files are **counted separately**, never moved, renamed, or imported automatically.
+- `clips.csv`, comments, watch history, general playlists, and Watch Later are **not music-library songs** and aren't added to the song total. Playlist video-only CSVs require a separate metadata enrichment pass.
 
-If the dashboard shows a small number of track rows but **0 artists** and **0 YouTube video IDs**, this is **not** a successful full music import. Open the generated report folder in `Documents\MusicTakeoutToolkit`, inspect `source-files.csv`, and look for skipped/unsupported file types. Google Takeout may split a single export across multiple ZIP files; make sure you have all its parts. This version processes one selected ZIP/folder per run; to include all parts, you can extract all ZIPs to one common directory and choose that folder. Extract only archives you trust.
+The main `music library songs.csv` in the tested Takeout source inventory contained **2,505 records** (not 25). This version fixes their field recognition but hasn't yet been end-to-end verified on that original ZIP. A selected archive may not contain everything in a user's account, and Takeout ZIP parts can be split.
 
-`source-files.csv` lists filenames and metadata classifications; do not publish private export data or local paths. An unsupported format cannot be assumed to have no music.
+## Reports and safety
 
-## Current limitations
-
-Google Takeout layouts vary. The current importer does not recognize every HTML/JSON format or guarantee it finds all saved songs or artists. A matched artist or song title is not proof of the exact recording version. The program does not directly download audio, automatically import artists, or move media files.
+Generated files include `dashboard.html`, `tracks.csv`, `artists.csv`, `source-files.csv`, `optional-youtube-queue.csv`, and optional Lidarr review CSVs. The API key is not written to reports. **No Lidarr imports, downloads, file moves, or searches are performed during inventory.** Explicitly approved Lidarr album searches are an optional later step.
 
 ## License
 
-See [LICENSE](LICENSE) for the draft **Personal and Noncommercial Use License**. This project is source-available, not OSI-approved open source. The license draft should receive legal review.
+See [LICENSE](LICENSE) for the **draft personal and noncommercial use terms**. This is source-available, not an OSI-approved open-source license. A legal review is recommended before relying on custom terms.
