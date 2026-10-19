@@ -60,4 +60,8 @@ This version **does not** run yt-dlp, download YouTube audio, import artists int
 
 ## License
 
-MIT, see LICENSE.
+Custom personal-use and noncommercial license (pending publication).
+
+This project is intended to be free for individuals using it for personal purposes. Commercial use, commercial redistribution, incorporation into paid products or services, and misrepresentation of the original authorship are not authorized without separate written permission.
+
+Full license terms will be published in the `LICENSE` file. Until then, no additional permissions are granted beyond those provided by applicable law.
