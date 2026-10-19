@@ -2,7 +2,7 @@
 [CmdletBinding()]
 param([string]$InputPath='', [string]$OutputRoot='', [string]$LidarrUrl='', [string]$LidarrApiKey='', [switch]$NoPrompt)
 $ErrorActionPreference = 'Stop'
-$toolName = 'Music Takeout Toolkit'
+$toolName = 'YouTube Music Takeout to Lidarr'
 function Get-Prop($row, [string[]]$aliases) {
     foreach ($alias in $aliases) {
         foreach ($p in $row.PSObject.Properties) {
@@ -72,7 +72,7 @@ try {
             if (-not $title -and -not $videoId) { continue }
             if (-not $title) { $title='(title missing)' }
             if ($videoId -notmatch '^[A-Za-z0-9_-]{11}$') { $videoId='' }
-            $youtube = if ($videoId) { 'https://www.youtube.com/watch?v=' + $videoId } else { '' }
+            $youtube = if ($videoId) { 'https://music.youtube.com/watch?v=' + $videoId } else { '' }
             $key = (Normalize $artist) + '|' + (Normalize $title) + '|' + $videoId
             if ($seen.ContainsKey($key)) { continue }
             $seen[$key]=$true
@@ -126,7 +126,7 @@ try {
     $countMissing=@($songs | Where-Object { $_.MatchStatus -eq 'NOT_IN_LIDARR_BY_NAME' }).Count
     $sb = New-Object System.Text.StringBuilder
     [void]$sb.AppendLine('<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Music Takeout Toolkit</title><style>body{font:16px system-ui,Segoe UI,sans-serif;max-width:1100px;margin:36px auto;padding:0 16px;color:#242936}a{color:#135ebc}.stats{display:flex;gap:12px;flex-wrap:wrap}.stat,.panel{border:1px solid #ddd;border-radius:12px;padding:16px;margin:12px 0}.stat b{display:block;font-size:28px}small{color:#616b78}table{border-collapse:collapse;width:100%;font-size:13px}th,td{border-bottom:1px solid #e4e6e8;padding:8px;text-align:left;word-break:break-word}input{padding:10px;max-width:100%;width:450px}.scroll{overflow:auto;max-height:520px}</style></head><body>')
-    [void]$sb.AppendLine('<h1>Music Takeout Toolkit</h1><p><small>Local audit. No downloads, no Lidarr changes, no file moves.</small></p>')
+    [void]$sb.AppendLine('<h1>YouTube Music Takeout to Lidarr</h1><p><small>Local audit. No downloads, no Lidarr changes, no file moves.</small></p>')
     [void]$sb.AppendLine('<div class="stats"><div class="stat"><b>'+$songs.Count+'</b>Track rows found</div><div class="stat"><b>'+$artistSet.Count+'</b>Artist credits</div><div class="stat"><b>'+$withVideo+'</b>Valid YouTube IDs</div><div class="stat"><b>'+$scanned+'</b>Recognized CSV files</div></div>')
     [void]$sb.AppendLine('<div class="panel"><h2>What you can do next</h2><p><a href="https://takeout.google.com/settings/takeout">Get a new Google Takeout export</a> · Review the local tracks.csv and artists.csv · Use optional-youtube-queue.csv to review original source videos · Connect Lidarr for a read-only name comparison · Download your own or authorized content separately.</p><p><strong>Nothing has been downloaded.</strong> Name matches are not proof of a specific recording. Your Takeout format may contain other music records not recognized by this CSV-only version.</p><p>Lidarr: '+(Html $lidarrState)+'; artist count: '+$(if($lidarrCount -ge 0){$lidarrCount}else{'not checked'})+'; matched track rows: '+$countKnown+'; missing-by-name track rows: '+$countMissing+'.</p></div>')
     [void]$sb.AppendLine('<div class="panel"><h2>Saved songs</h2><input id="find" type="search" placeholder="Search artist or song" oninput="filterRows()"><div class="scroll"><table id="tracks"><thead><tr><th>Artist</th><th>Song</th><th>Match status</th><th>Source video</th></tr></thead><tbody>')
@@ -143,17 +143,18 @@ try {
     Write-Host "Recognized CSV files: $scanned"
     Write-Host "Lidarr: $lidarrState"
     Write-Host "Reports saved in: $runFolder"
-    Write-Host 'No downloads or imports occurred.'
+    Write-Host 'No searches, downloads or imports occurred during inventory.'
     if (-not $NoPrompt) {
         do {
-            Write-Host "`nOPTIONS: [1] Open dashboard  [2] Open report folder  [3] Open Google Takeout  [4] Finish"
+            Write-Host "`nOPTIONS: [1] Open dashboard  [2] Open report folder  [3] Open Google Takeout  [4] Finish  [5] Review and optionally request Lidarr album searches"
             $choice = Read-Host 'Choose'
             switch ($choice) {
                 '1' { Start-Process -FilePath $reportPath }
                 '2' { Start-Process -FilePath $runFolder }
                 '3' { Start-Process 'https://takeout.google.com/settings/takeout' }
                 '4' { break }
-                default { Write-Host 'Choose 1 through 4.' }
+                '5' { & (Join-Path $PSScriptRoot 'Lidarr-Review.ps1') -TracksCsv $tracksPath -ReportFolder $runFolder -LidarrUrl $LidarrUrl -LidarrApiKey $LidarrApiKey }
+                default { Write-Host 'Choose 1 through 5.' }
             }
         } until ($choice -eq '4')
     }
