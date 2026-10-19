@@ -1,4 +1,4 @@
-# YouTube Music Takeout to Lidarr — v0.5.1 wizard preview
+# YouTube Music Takeout to Lidarr — v0.5.2 startup reliability fix
 
 A Windows desktop wizard that guides users one step at a time through choosing their Google account, requesting a YouTube Music Takeout archive, locating the ZIP, and generating a local music inventory.
 
@@ -7,8 +7,10 @@ A Windows desktop wizard that guides users one step at a time through choosing t
 Review the repository before executing remote code.
 
 ```powershell
-$u='https://github.com/Gost1o1/YouTube-Music-Takeout-To-Lidarr/archive/refs/heads/main.zip';$d=Join-Path $env:LOCALAPPDATA 'YouTubeMusicTakeoutToLidarr';New-Item -ItemType Directory -Path $d -Force|Out-Null;Invoke-WebRequest $u -OutFile "$d\repo.zip" -UseBasicParsing -ErrorAction Stop;Expand-Archive "$d\repo.zip" "$d\source" -Force;$s=Get-ChildItem "$d\source" -Filter Start.ps1 -Recurse|Select-Object -First 1;powershell.exe -NoProfile -ExecutionPolicy Bypass -File $s.FullName
+$u='https://github.com/Gost1o1/YouTube-Music-Takeout-To-Lidarr/archive/refs/heads/main.zip';$d=Join-Path $env:LOCALAPPDATA 'YouTubeMusicTakeoutToLidarr';New-Item -ItemType Directory -Path $d -Force|Out-Null;Invoke-WebRequest $u -OutFile "$d\repo.zip" -UseBasicParsing -ErrorAction Stop;Expand-Archive "$d\repo.zip" "$d\source" -Force;$s=Get-ChildItem "$d\source" -Filter Start.ps1 -Recurse|Select-Object -First 1;powershell.exe -NoProfile -STA -ExecutionPolicy Bypass -File $s.FullName
 ```
+
+**Startup behavior:** The native desktop window now runs in the visible, attached PowerShell process. This prevents the older hidden-child startup from silently failing. Keep the PowerShell window open while the app is running; closing the GUI returns you to the prompt. An automatic console-close feature can be considered after Windows validation. No Administrator privileges are needed.
 
 ## Guided steps
 
