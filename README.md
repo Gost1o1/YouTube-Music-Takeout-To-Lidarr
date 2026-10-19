@@ -1,4 +1,4 @@
-# YouTube Music Takeout to Lidarr — v0.6.1
+# YouTube Music Takeout to Lidarr — v0.6.2
 
 ## Windows application
 
@@ -13,3 +13,7 @@ Output reports from the existing Takeout parser are stored in `Documents\MusicTa
 ## Windows-specific validation
 
 This package was statically reviewed and its ZIP tested, but it has **not been run on Windows**. Test with an existing Takeout ZIP; verify scan -> summary -> connection. Report errors before trying future import features.
+
+## Troubleshooting scan connection
+
+Keep the PowerShell window open while scanning: this window hosts the localhost service. A red connection warning indicates that the browser cannot reach that service; it is not evidence of an invalid Takeout ZIP. Review `Documents\MusicTakeoutToolkit\startup-errors.log` for server errors. The application no longer offers a stage dropdown; navigation uses buttons. The scan button is the action that initiates the search and analysis.

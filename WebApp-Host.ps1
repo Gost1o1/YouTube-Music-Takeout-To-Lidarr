@@ -7,6 +7,8 @@ $ErrorActionPreference='Continue'
 $docs=[Environment]::GetFolderPath('MyDocuments')
 $root=Join-Path $docs 'MusicTakeoutToolkit'
 [IO.Directory]::CreateDirectory($root) | Out-Null
+$script:serverLog=Join-Path $root 'startup-errors.log'
+function Log-Server([string]$message){try{Add-Content -LiteralPath $script:serverLog -Value ('['+(Get-Date).ToString('s')+'] '+$message) -Encoding UTF8}catch{}}
 $script:data=[ordered]@{archive=$InputPath;analyzing=$false;analysisError='';summary=$null;tracks=@();report='';lidarrUrl='http://127.0.0.1:8686';lidarrConnected=$false;lidarrArtists=@();comparison=$null;eventLog=@()}
 $script:child=$null;$script:outLog='';$script:errLog='';$script:analysisStart=Get-Date
 function Send-Json($ctx,$obj,[int]$code=200){
@@ -151,7 +153,7 @@ $socket.Start();$port=($socket.LocalEndpoint).Port;$socket.Stop()
 $listener=New-Object Net.HttpListener
 $prefix='http://127.0.0.1:'+ $port +'/'
 $listener.Prefixes.Add($prefix)
-try{$listener.Start()}catch{throw 'Unable to start the local interface: '+$_.Exception.Message}
+try{$listener.Start();Log-Server ('Listening on '+$prefix)}catch{Log-Server ('Listener could not start: '+$_.Exception.ToString());throw 'Unable to start the local interface: '+$_.Exception.Message}
 $url=$prefix
 $edgePaths=@("$env:ProgramFiles (x86)\Microsoft\Edge\Application\msedge.exe","$env:ProgramFiles\Microsoft\Edge\Application\msedge.exe")
 $edge=$edgePaths|Where-Object{Test-Path -LiteralPath $_}|Select-Object -First 1
@@ -163,7 +165,6 @@ try {
   while($listener.IsListening){
     $pending=$listener.BeginGetContext($null,$null)
     while(-not $pending.AsyncWaitHandle.WaitOne(250)) {Check-Process}
-    $context=$listener.EndGetContext($pending)
-    Handle $context
+    try{$context=$listener.EndGetContext($pending);Handle $context}catch{Log-Server ('Request processing failed: '+$_.Exception.ToString());Write-Warning ('Local service request failed: '+$_.Exception.Message)}
   }
-}finally{$listener.Stop();$listener.Close()}
+}catch{Log-Server ('Server stopped unexpectedly: '+$_.Exception.ToString());throw}finally{Log-Server 'Listener closed';$listener.Stop();$listener.Close()}
