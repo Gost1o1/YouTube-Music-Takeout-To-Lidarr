@@ -30,7 +30,7 @@ function Read-TrackFile {
  } finally {$script:grid.ResumeLayout()}
  $script:countLabel.Text=('Tracks: '+$script:tracks.Count+'    Artists: '+@($script:tracks|Where-Object {$_.Artist}|Select-Object -ExpandProperty Artist -Unique).Count)
  Info ('Loaded '+$script:tracks.Count+' Takeout records. No downloads requested.')
- if($script:wizard){Update-LibrarySummary;Set-WizardStage 4}
+ if($script:wizard){Update-LibrarySummary;Set-WizardStage 4;Info 'Takeout analysis complete. Review your music library and continue to Lidarr setup.'}
 }
 function New-Button($text,$x,$y,$w,$handler){
  $b=New-Object System.Windows.Forms.Button
@@ -38,7 +38,7 @@ function New-Button($text,$x,$y,$w,$handler){
  $b.Add_Click($handler);$script:form.Controls.Add($b);return $b
 }
 $script:form=New-Object System.Windows.Forms.Form
-$script:form.Text='YouTube Music Takeout to Lidarr  |  v0.5.8'
+$script:form.Text='YouTube Music Takeout to Lidarr  |  v0.5.9'
 $script:form.Size=New-Object System.Drawing.Size(1100,770)
 $script:form.StartPosition='CenterScreen';$script:form.MinimumSize=New-Object System.Drawing.Size(850,650)
 $script:form.Font=New-Object System.Drawing.Font('Segoe UI',10)
@@ -65,7 +65,7 @@ $start=New-Button 'Analyze Takeout' 384 135 155 {
  if($script:engineProcess -and -not $script:engineProcess.HasExited){Alert 'Analysis is still running.';return}
  $path=$script:sourceBox.Text.Trim().Trim('"')
  if(-not(Test-Path -LiteralPath $path)){Alert 'Choose an existing ZIP or folder first.';return}
- $script:currentReport='';$script:started=$true
+ $script:currentReport='';$script:started=$true;$script:analysisStartedAt=Get-Date
  $script:progress.Style='Marquee';$script:progress.MarqueeAnimationSpeed=28
  $script:grid.Rows.Clear();$script:countLabel.Text='Analyzing archive…'
  $script:engineOutput=Join-Path $root ('engine-'+[guid]::NewGuid().ToString('N')+'.out.log')
@@ -137,11 +137,36 @@ $script:timer.Add_Tick({
  $logText='';$errText=''
  if(Test-Path $script:engineOutput){$logText=[IO.File]::ReadAllText($script:engineOutput)}
  if(Test-Path $script:engineError){$errText=[IO.File]::ReadAllText($script:engineError)}
- if($script:engineProcess.ExitCode -ne 0 -or $errText){Info 'Takeout analysis ended with an error. See log in the report folder.';if($script:wizard){Set-WizardStage 2};Alert (($errText+' '+$logText).Trim().Substring(0,[math]::Min(900,($errText+' '+$logText).Trim().Length)));return}
- $runs=@(Get-ChildItem -LiteralPath $root -Directory | Where-Object {Test-Path (Join-Path $_.FullName 'tracks.csv')} | Sort-Object LastWriteTime -Descending)
- if(-not $runs.Count){if($script:wizard){Set-WizardStage 2};Alert 'No tracks.csv was created. Check the output logs.';return}
+ # Windows PowerShell may emit harmless warnings or non-terminating messages to stderr.
+ # Only a nonzero process exit code is a fatal analysis failure; if a report exists,
+ # prefer to show its results even when a warning was logged.
+ $script:engineProcess.Refresh()
+ $exitCode=$script:engineProcess.ExitCode
+ if($exitCode -ne 0){
+  Info ('Takeout analysis failed with exit code '+$exitCode+'. See diagnostic logs in Documents\MusicTakeoutToolkit.')
+  if($script:wizard){Set-WizardStage 2}
+  $diagnostic=($errText+' '+$logText).Trim()
+  if(-not $diagnostic){$diagnostic='The Takeout process returned a nonzero exit code. Please check the generated logs.'}
+  Alert $diagnostic.Substring(0,[math]::Min(900,$diagnostic.Length))
+  return
+ }
+ # Match this particular analysis run, not an older run, if there are existing reports.
+ $runs=@(Get-ChildItem -LiteralPath $root -Directory | Where-Object {
+  (Test-Path (Join-Path $_.FullName 'tracks.csv')) -and
+  $_.LastWriteTime -ge $script:analysisStartedAt.AddSeconds(-5)
+ } | Sort-Object LastWriteTime -Descending)
+ if(-not $runs.Count){
+  Info 'Analysis exited successfully but no new tracks.csv was found.'
+  if($script:wizard){Set-WizardStage 2}
+  Alert 'Analysis finished, but no new tracks.csv could be located. Please inspect the engine logs.'
+  return
+ }
  $script:currentReport=$runs[0].FullName
- try{Read-TrackFile}catch{if($script:wizard){Set-WizardStage 2};Alert ('Could not load generated report: '+$_.Exception.Message)}
+ if($errText.Trim()){Info 'Takeout analysis completed with warnings. Diagnostic details are saved in the engine log.'}
+ try{Read-TrackFile}catch{
+  if($script:wizard){Set-WizardStage 2}
+  Alert ('Could not load generated report: '+$_.Exception.Message)
+ }
 })
 $script:timer.Start()
 $script:form.Add_FormClosing({$script:timer.Stop();$script:sessionKey='';$script:keyBox.Clear();if($script:engineProcess -and -not $script:engineProcess.HasExited){$choice=[System.Windows.Forms.MessageBox]::Show('Analysis is still running. Leave it running and close the interface?','Analysis running','YesNo');if($choice -ne 'Yes'){$_.Cancel=$true;$script:timer.Start()}}})
