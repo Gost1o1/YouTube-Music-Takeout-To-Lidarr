@@ -30,6 +30,7 @@ function Read-TrackFile {
  } finally {$script:grid.ResumeLayout()}
  $script:countLabel.Text=('Tracks: '+$script:tracks.Count+'    Artists: '+@($script:tracks|Where-Object {$_.Artist}|Select-Object -ExpandProperty Artist -Unique).Count)
  Info ('Loaded '+$script:tracks.Count+' Takeout records. No downloads requested.')
+ if($script:wizard){Update-LibrarySummary;Set-WizardStage 4}
 }
 function New-Button($text,$x,$y,$w,$handler){
  $b=New-Object System.Windows.Forms.Button
@@ -37,7 +38,7 @@ function New-Button($text,$x,$y,$w,$handler){
  $b.Add_Click($handler);$script:form.Controls.Add($b);return $b
 }
 $script:form=New-Object System.Windows.Forms.Form
-$script:form.Text='YouTube Music Takeout to Lidarr  |  v0.5.7'
+$script:form.Text='YouTube Music Takeout to Lidarr  |  v0.5.8'
 $script:form.Size=New-Object System.Drawing.Size(1100,770)
 $script:form.StartPosition='CenterScreen';$script:form.MinimumSize=New-Object System.Drawing.Size(850,650)
 $script:form.Font=New-Object System.Drawing.Font('Segoe UI',10)
@@ -72,7 +73,7 @@ $start=New-Button 'Analyze Takeout' 384 135 155 {
  $engine=Join-Path $PSScriptRoot 'Takeout-Engine.ps1'
  $cmd='-NoProfile -ExecutionPolicy Bypass -File "'+$engine+'" -InputPath "'+$path+'" -OutputRoot "'+$root+'" -NoPrompt'
  try {$script:engineProcess=Start-Process -FilePath (Join-Path $PSHOME 'powershell.exe') -ArgumentList $cmd -WindowStyle Hidden -RedirectStandardOutput $script:engineOutput -RedirectStandardError $script:engineError -PassThru -ErrorAction Stop;Info 'Scanning the full Takeout archive in the background…'}
- catch {$script:progress.Style='Blocks';Alert $_.Exception.Message}
+ catch {$script:progress.Style='Blocks';if($script:wizard){Set-WizardStage 2};Alert $_.Exception.Message}
 }
 $script:progress=New-Object System.Windows.Forms.ProgressBar;$script:progress.Location=New-Object System.Drawing.Point(20,185);$script:progress.Size=New-Object System.Drawing.Size(1035,15);$script:progress.Anchor='Top,Left,Right';$script:form.Controls.Add($script:progress)
 $script:countLabel=New-Object System.Windows.Forms.Label;$script:countLabel.Text='No Takeout archive analyzed yet';$script:countLabel.Location=New-Object System.Drawing.Point(20,212);$script:countLabel.AutoSize=$true;$script:form.Controls.Add($script:countLabel)
@@ -136,11 +137,11 @@ $script:timer.Add_Tick({
  $logText='';$errText=''
  if(Test-Path $script:engineOutput){$logText=[IO.File]::ReadAllText($script:engineOutput)}
  if(Test-Path $script:engineError){$errText=[IO.File]::ReadAllText($script:engineError)}
- if($script:engineProcess.ExitCode -ne 0 -or $errText){Info 'Takeout analysis ended with an error. See log in the report folder.';Alert (($errText+' '+$logText).Trim().Substring(0,[math]::Min(900,($errText+' '+$logText).Trim().Length)));return}
+ if($script:engineProcess.ExitCode -ne 0 -or $errText){Info 'Takeout analysis ended with an error. See log in the report folder.';if($script:wizard){Set-WizardStage 2};Alert (($errText+' '+$logText).Trim().Substring(0,[math]::Min(900,($errText+' '+$logText).Trim().Length)));return}
  $runs=@(Get-ChildItem -LiteralPath $root -Directory | Where-Object {Test-Path (Join-Path $_.FullName 'tracks.csv')} | Sort-Object LastWriteTime -Descending)
- if(-not $runs.Count){Alert 'No tracks.csv was created. Check the output logs.';return}
+ if(-not $runs.Count){if($script:wizard){Set-WizardStage 2};Alert 'No tracks.csv was created. Check the output logs.';return}
  $script:currentReport=$runs[0].FullName
- try{Read-TrackFile}catch{Alert ('Could not load generated report: '+$_.Exception.Message)}
+ try{Read-TrackFile}catch{if($script:wizard){Set-WizardStage 2};Alert ('Could not load generated report: '+$_.Exception.Message)}
 })
 $script:timer.Start()
 $script:form.Add_FormClosing({$script:timer.Stop();$script:sessionKey='';$script:keyBox.Clear();if($script:engineProcess -and -not $script:engineProcess.HasExited){$choice=[System.Windows.Forms.MessageBox]::Show('Analysis is still running. Leave it running and close the interface?','Analysis running','YesNo');if($choice -ne 'Yes'){$_.Cancel=$true;$script:timer.Start()}}})
@@ -182,6 +183,85 @@ $script:wizardSkip=New-Object System.Windows.Forms.Button
 $script:wizardSkip.Size=New-Object System.Drawing.Size(360,46)
 $script:wizard.Controls.Add($script:wizardSkip)
 
+# Results and connection screens remain inside the wizard, never reveal the legacy dashboard.
+$script:librarySummary=New-Object System.Windows.Forms.Label
+$script:librarySummary.Font=New-Object System.Drawing.Font('Segoe UI',12)
+$script:librarySummary.TextAlign='MiddleCenter'
+$script:librarySummary.Size=New-Object System.Drawing.Size(820,80)
+$script:wizard.Controls.Add($script:librarySummary)
+$script:previewGrid=New-Object System.Windows.Forms.DataGridView
+$script:previewGrid.ReadOnly=$true;$script:previewGrid.AllowUserToAddRows=$false
+$script:previewGrid.AllowUserToDeleteRows=$false;$script:previewGrid.RowHeadersVisible=$false
+$script:previewGrid.AutoSizeColumnsMode='Fill';$script:previewGrid.SelectionMode='FullRowSelect'
+[void]$script:previewGrid.Columns.Add('Number','#')
+[void]$script:previewGrid.Columns.Add('Artist','Artist')
+[void]$script:previewGrid.Columns.Add('Song','Song')
+[void]$script:previewGrid.Columns.Add('Link','YouTube Link')
+$script:previewGrid.Columns[0].FillWeight=8;$script:previewGrid.Columns[1].FillWeight=30
+$script:previewGrid.Columns[2].FillWeight=40;$script:previewGrid.Columns[3].FillWeight=22
+$script:previewGrid.Add_CellDoubleClick({param($sender,$e)
+ if($e.RowIndex -ge 0 -and $e.ColumnIndex -eq 3){$url=[string]$sender.Rows[$e.RowIndex].Tag
+ if($url -match '^https://(music\.)?youtube\.com/'){Start-Process $url}}
+})
+$script:wizard.Controls.Add($script:previewGrid)
+$script:wizardAddress=New-Object System.Windows.Forms.TextBox
+$script:wizardAddress.Text='http://127.0.0.1:8686';$script:wizardAddress.Font=New-Object System.Drawing.Font('Segoe UI',11)
+$script:wizard.Controls.Add($script:wizardAddress)
+$script:wizardKey=New-Object System.Windows.Forms.TextBox
+$script:wizardKey.UseSystemPasswordChar=$true;$script:wizardKey.Font=New-Object System.Drawing.Font('Segoe UI',11)
+$script:wizard.Controls.Add($script:wizardKey)
+$script:lidarrMessage=New-Object System.Windows.Forms.Label
+$script:lidarrMessage.Size=New-Object System.Drawing.Size(820,65);$script:lidarrMessage.TextAlign='MiddleCenter'
+$script:lidarrMessage.Font=New-Object System.Drawing.Font('Segoe UI',11)
+$script:wizard.Controls.Add($script:lidarrMessage)
+$script:wizardGetKey=New-Object System.Windows.Forms.Button
+$script:wizardGetKey.Text='Get API Key';$script:wizardGetKey.Size=New-Object System.Drawing.Size(360,46)
+$script:wizard.Controls.Add($script:wizardGetKey)
+$script:wizardGetKey.Add_Click({
+ try{Start-Process $script:wizardAddress.Text.Trim()}catch{Alert ('Unable to open Lidarr: '+$_.Exception.Message)}
+})
+$script:connectionResult=New-Object System.Windows.Forms.Label
+$script:connectionResult.Size=New-Object System.Drawing.Size(820,80);$script:connectionResult.TextAlign='MiddleCenter'
+$script:wizard.Controls.Add($script:connectionResult)
+function Update-LibrarySummary {
+ if(-not $script:tracks){return}
+ $artists=@($script:tracks|Where-Object {$_.Artist}|ForEach-Object {$_.Artist.Trim()}|Sort-Object -Unique)
+ $urls=@($script:tracks|Where-Object {$_.YouTubeUrl -match '^https://'})
+ $script:librarySummary.Text=('{0:N0} songs    |    {1:N0} unique displayed artists    |    {2:N0} music links' -f $script:tracks.Count,$artists.Count,$urls.Count)
+ $script:previewGrid.Rows.Clear()
+ $limit=[math]::Min(100,$script:tracks.Count)
+ for($i=0;$i -lt $limit;$i++){
+  $t=$script:tracks[$i];$row=$script:previewGrid.Rows.Add(($i+1),$t.Artist,$t.Song,$(if($t.YouTubeUrl){'Open link'}else{'Unavailable'}))
+  $script:previewGrid.Rows[$row].Tag=[string]$t.YouTubeUrl
+ }
+}
+function Start-WizardAnalysis([string]$path){
+ $script:sourceBox.Text=$path
+ Set-WizardStage 3
+ $start.PerformClick()
+}
+function Test-LidarrReachable([string]$url){
+ try{
+  $response=Invoke-WebRequest -Uri ($url.TrimEnd('/')+'/api/v1/system/status') -UseBasicParsing -TimeoutSec 4 -ErrorAction Stop
+  return $true
+ }catch{
+  # 401/403 demonstrates that Lidarr is listening but needs authentication.
+  if($_.Exception.Response -and [int]$_.Exception.Response.StatusCode -in @(401,403)){return $true}
+  return $false
+ }
+}
+function Show-LidarrConnection {
+ Set-WizardStage 5
+ $script:lidarrMessage.Text='Checking the default Lidarr address...'
+ $script:form.Refresh()
+ $script:lidarrFound=Test-LidarrReachable $script:wizardAddress.Text
+ if($script:lidarrFound){$script:lidarrMessage.Text='Lidarr found! Open Lidarr and go to Settings > General > API Key. Click Get API Key when you are ready.'}
+ else{$script:lidarrMessage.Text='Lidarr was not found at the default address. Enter the address you use to open Lidarr, then click Test Address.'}
+ $script:wizardMain.Text=$(if($script:lidarrFound){'Connect to Lidarr'}else{'Test Address'})
+ $script:wizardGetKey.Visible=$script:lidarrFound
+ $script:wizardKey.Visible=$script:lidarrFound
+}
+
 function Layout-Wizard {
  $panelWidth=[math]::Max(1,$script:wizard.ClientSize.Width)
  $centerX=[int](($panelWidth-880)/2)
@@ -205,6 +285,29 @@ function Layout-Wizard {
   $script:wizardMain.Location=New-Object System.Drawing.Point($buttonX,415)
   $script:wizardNext.Location=New-Object System.Drawing.Point($buttonX,480)
  }
+ $script:librarySummary.Visible=($script:wizardStage -eq 4)
+ $script:previewGrid.Visible=($script:wizardStage -eq 4)
+ $script:lidarrMessage.Visible=($script:wizardStage -eq 5)
+ $script:wizardAddress.Visible=($script:wizardStage -eq 5)
+ $script:connectionResult.Visible=($script:wizardStage -eq 6)
+ if($script:wizardStage -eq 4){
+  $script:librarySummary.Location=New-Object System.Drawing.Point($textX,165)
+  $script:previewGrid.Location=New-Object System.Drawing.Point([int](($panelWidth-850)/2),255)
+  $script:previewGrid.Size=New-Object System.Drawing.Size(850,270)
+  $script:wizardMain.Location=New-Object System.Drawing.Point($buttonX,560)
+  $script:wizardNext.Location=New-Object System.Drawing.Point($buttonX,620)
+ }elseif($script:wizardStage -eq 5){
+  $script:lidarrMessage.Location=New-Object System.Drawing.Point($textX,205)
+  $script:wizardAddress.Size=New-Object System.Drawing.Size(360,30)
+  $script:wizardAddress.Location=New-Object System.Drawing.Point($buttonX,300)
+  $script:wizardGetKey.Location=New-Object System.Drawing.Point($buttonX,360)
+  $script:wizardKey.Size=New-Object System.Drawing.Size(360,30)
+  $script:wizardKey.Location=New-Object System.Drawing.Point($buttonX,425)
+  $script:wizardMain.Location=New-Object System.Drawing.Point($buttonX,490)
+  $script:wizardNext.Location=New-Object System.Drawing.Point($buttonX,555)
+ }elseif($script:wizardStage -eq 6){
+  $script:connectionResult.Location=New-Object System.Drawing.Point($textX,230)
+ }
  # Labels must never cover clickable controls, including after window resize.
  $script:wizardMain.BringToFront()
  $script:wizardNext.BringToFront()
@@ -214,6 +317,7 @@ $script:wizard.Add_Resize({Layout-Wizard})
 
 function Set-WizardStage([int]$stage){
  $script:wizardStage=$stage
+ $script:wizardGetKey.Visible=$false;$script:wizardKey.Visible=$false
  $script:wizardMain.Visible=$true;$script:wizardNext.Visible=$true;$script:wizardSkip.Visible=$false
  switch($stage){
   0 {
@@ -248,14 +352,44 @@ While the prepared archive is available, you can download it again from Google T
    $script:wizardNext.Text='Back'
   }
   2 {
-   $script:wizardProgress.Value=100
+   $script:wizardProgress.Value=40
    $script:wizardText.Visible=$true
    $script:wizardHeading.Text='Find Your Downloaded Music Data'
    $script:wizardText.Text='Once Google has prepared your export, download the ZIP archive. Click Scan for Takeout File to search your Downloads folder. If a valid archive cannot be found, the Windows file picker will open so you can select it manually.'
    $script:wizardMain.Text='Scan for Takeout File'
    $script:wizardNext.Text='Back'
   }
+  3 {
+   $script:wizardProgress.Style='Marquee';$script:wizardProgress.MarqueeAnimationSpeed=22
+   $script:wizardHeading.Text='Analyzing Your Music Library'
+   $script:wizardText.Visible=$true
+   $script:wizardText.Text='Your Takeout archive was found. Reading the music library now; this may take a little while.'
+   $script:wizardMain.Visible=$false;$script:wizardNext.Visible=$false
+  }
+  4 {
+   $script:wizardProgress.Style='Continuous';$script:wizardProgress.Value=65
+   $script:wizardHeading.Text='Your Music Library Is Ready!'
+   $script:wizardText.Visible=$false
+   $script:wizardMain.Text='Continue to Lidarr Setup'
+   $script:wizardNext.Text='Back to Scan'
+  }
+  5 {
+   $script:wizardProgress.Value=78
+   $script:wizardHeading.Text='Connect to Lidarr'
+   $script:wizardText.Visible=$false
+   $script:wizardMain.Text='Test Address'
+   $script:wizardNext.Text='Back to Library'
+  }
+  6 {
+   $script:wizardProgress.Value=88
+   $script:wizardHeading.Text='Connected to Lidarr!'
+   $script:wizardText.Visible=$false
+   $script:connectionResult.Text='Lidarr authentication worked. Your Takeout library is ready for a read-only comparison. Advanced matching and background imports are still in development.'
+   $script:wizardMain.Text='Open Read-Only Comparison Workspace'
+   $script:wizardNext.Text='Back'
+  }
  }
+ if($stage -ne 3){$script:wizardProgress.Style='Continuous';$script:wizardProgress.MarqueeAnimationSpeed=0}
  Layout-Wizard
 }
 function Test-TakeoutZip([string]$path){
@@ -282,9 +416,7 @@ function Select-TakeoutFromPicker {
  try {
   if($picker.ShowDialog() -ne [System.Windows.Forms.DialogResult]::OK){return}
   if(-not (Test-TakeoutZip $picker.FileName)){Alert 'This ZIP does not appear to contain a recognized YouTube Music library CSV. Select a different Google Takeout ZIP.';return}
-  $script:sourceBox.Text=$picker.FileName
-  $script:wizard.Hide()
-  Info 'Takeout archive selected. Click Analyze Takeout to begin.'
+  Start-WizardAnalysis $picker.FileName
  } finally {$picker.Dispose()}
 }
 $script:wizardMain.Add_Click({
@@ -300,8 +432,7 @@ $script:wizardMain.Add_Click({
     $found=$true
     $ans=[System.Windows.Forms.MessageBox]::Show(('Use this Takeout archive?'+[Environment]::NewLine+$candidate.FullName),'Takeout archive found',[System.Windows.Forms.MessageBoxButtons]::YesNo,[System.Windows.Forms.MessageBoxIcon]::Question)
     if($ans -eq [System.Windows.Forms.DialogResult]::Yes){
-     $script:sourceBox.Text=$candidate.FullName;$script:wizard.Hide()
-     Info 'Takeout archive found. Click Analyze Takeout to begin.'
+     Start-WizardAnalysis $candidate.FullName
      return
     }
     break
@@ -309,12 +440,27 @@ $script:wizardMain.Add_Click({
    if(-not $found){Info 'No recognizable Takeout music archive found in Downloads. Opening file picker.'}
    Select-TakeoutFromPicker
   }
+  4 {Show-LidarrConnection}
+  5 {
+   if(-not $script:lidarrFound){Show-LidarrConnection;return}
+   $url=$script:wizardAddress.Text.Trim().TrimEnd('/')
+   $key=$script:wizardKey.Text.Trim()
+   if(-not $key){Alert 'Click Get API Key, then paste your key before connecting.';return}
+   try{
+    $list=@(Invoke-RestMethod -Uri ($url+'/api/v1/artist') -Headers @{'X-Api-Key'=$key} -TimeoutSec 20 -ErrorAction Stop)
+    $script:sessionUrl=$url;$script:sessionKey=$key;$script:installedArtists=$list
+    $script:urlBox.Text=$url;$script:keyBox.Text=$key
+    Set-WizardStage 6
+    $script:connectionResult.Text=('Connected successfully. {0} Lidarr artist entries available for a read-only comparison. Advanced guided matching is still in development.' -f $list.Count)
+   }catch{Alert ('Unable to authenticate with Lidarr: '+$_.Exception.Message)}
+  }
+  6 {$script:wizard.Hide();Info 'Read-only comparison workspace opened. Advanced guided matching is not yet implemented.'}
  }
 })
-$script:wizardNext.Add_Click({if($script:wizardStage -eq 2){Set-WizardStage 1}else{Set-WizardStage 0}})
+$script:wizardNext.Add_Click({switch($script:wizardStage){2 {Set-WizardStage 1} 4 {Set-WizardStage 2} 5 {Set-WizardStage 4} 6 {Show-LidarrConnection} default {Set-WizardStage 0}}})
 $script:wizardSkip.Add_Click({Select-TakeoutFromPicker})
 Set-WizardStage 0
 $script:form.Add_Shown({Layout-Wizard})
-if($InputPath -and (Test-Path -LiteralPath $InputPath)){$script:wizard.Hide()}
+if($InputPath -and (Test-Path -LiteralPath $InputPath)){Start-WizardAnalysis $InputPath}
 
 [void][System.Windows.Forms.Application]::Run($script:form)

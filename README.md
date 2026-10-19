@@ -1,4 +1,4 @@
-# YouTube Music Takeout to Lidarr — v0.5.7 guided export and ZIP detection update
+# YouTube Music Takeout to Lidarr — v0.5.8 guided export and ZIP detection update
 
 A Windows desktop wizard that guides users one step at a time through choosing their Google account, requesting a YouTube Music Takeout archive, locating the ZIP, and generating a local music inventory.
 
@@ -12,7 +12,7 @@ $u='https://github.com/Gost1o1/YouTube-Music-Takeout-To-Lidarr/archive/refs/head
 
 **Startup behavior:** The native desktop window now runs in the visible, attached PowerShell process. This prevents the older hidden-child startup from silently failing. Keep the PowerShell window open while the app is running; closing the GUI returns you to the prompt. An automatic console-close feature can be considered after Windows validation. No Administrator privileges are needed.
 
-## Implemented desktop flow in v0.5.7
+## Implemented desktop flow in v0.5.8
 
 1. **Choose Your Data** offers **Choose Google Account** or **Downloaded Data File**. Clicking Choose Google Account first shows export instructions; it does **not** open the browser prematurely.
 2. **Prepare Your YouTube Music Export** explains Google's **Next step → File size: 50 GB → Create export** flow; file size is a maximum ZIP-part size, not an expected download size. The app explains that Google may take minutes to days and usually emails both a request confirmation and a ready-to-download notification.
@@ -33,3 +33,7 @@ The app does not collect Google credentials or browser cookies, and the Lidarr A
 
 ## v0.5.5 Takeout account routing
 The **Choose Google Account** button opens the official YouTube-specific Google Takeout URL directly and advances the desktop wizard to the export guidance step. If Google has an active session for a different account, use the account avatar at the top right of the Takeout page to switch accounts and verify YouTube and YouTube Music are the only selected product. The program does not access Google credentials or automate export submission.
+
+
+### v0.5.8 wizard correction
+A valid Takeout ZIP now starts analysis without exposing the legacy workspace. Analysis results appear in a numbered song-preview screen and proceed to Lidarr setup. The legacy read-only workspace remains accessible after connection, while later matching/import stages remain planned rather than implemented.
