@@ -19,7 +19,7 @@ function Get-LidarrConnection {
  if(-not $Url){Write-Host 'Lidarr connection cancelled.';return $null}
  if($Url -notmatch '^https?://'){Write-Warning 'Lidarr URL must start with http:// or https://';return $null}
  if(-not $ApiKey){
-   Write-Host 'Your Lidarr API key is in Settings -> General -> API Key.'
+   Write-Host 'In Lidarr, open the LEFT sidebar, click Settings, choose General, then find API Key.'
    Write-Host 'Use the Paste button in the next window. The key will not appear in reports.'
    try {
      Add-Type -AssemblyName System.Windows.Forms -ErrorAction Stop
@@ -27,7 +27,7 @@ function Get-LidarrConnection {
      $form=New-Object System.Windows.Forms.Form
      $form.Text='Lidarr API Key';$form.StartPosition='CenterScreen';$form.Size=New-Object System.Drawing.Size(590,215)
      $form.FormBorderStyle='FixedDialog';$form.MaximizeBox=$false;$form.MinimizeBox=$false;$form.TopMost=$true
-     $label=New-Object System.Windows.Forms.Label;$label.Text='Settings > General > API Key. Click Paste or press Ctrl+V in the box:'
+     $label=New-Object System.Windows.Forms.Label;$label.Text='Lidarr left sidebar > Settings > General > API Key. Use Paste or Ctrl+V:'
      $label.AutoSize=$true;$label.Location=New-Object System.Drawing.Point(15,15);$form.Controls.Add($label)
      $field=New-Object System.Windows.Forms.TextBox;$field.Location=New-Object System.Drawing.Point(15,47);$field.Size=New-Object System.Drawing.Size(420,27)
      $field.UseSystemPasswordChar=$true;$form.Controls.Add($field)

@@ -35,10 +35,10 @@ $raw=Invoke-RestMethod -Uri "$base/artist" -Headers $headers -TimeoutSec 75 -Err
 $existing=@($raw | Where-Object {$null -ne $_ -and $_.id})
 $idIndex=@{};$nameIndex=@{}
 foreach($artist in $existing){
- if($artist.foreignArtistId){$idIndex[[string]$artist.foreignArtistId]=$artist.artistName}
+ if($artist.foreignArtistId){$idIndex[[string]$artist.foreignArtistId]=$artist}
  $names=@([string]$artist.artistName)
  if($artist.aliases){$names+=@($artist.aliases | ForEach-Object {$_.name})}
- foreach($name in $names){$normalized=Normalize-Artist $name;if(-not $normalized){continue};if(-not $nameIndex.ContainsKey($normalized)){$nameIndex[$normalized]=@{}};$nameIndex[$normalized][[string]$artist.id]=[string]$artist.artistName}
+ foreach($name in $names){$normalized=Normalize-Artist $name;if(-not $normalized){continue};if(-not $nameIndex.ContainsKey($normalized)){$nameIndex[$normalized]=@{}};$nameIndex[$normalized][[string]$artist.id]=$artist}
 }
 $rootResponse=Invoke-RestMethod -Uri "$base/rootfolder" -Headers $headers -TimeoutSec 45
 $roots=@($rootResponse | Where-Object {$_.path})
@@ -69,15 +69,41 @@ if($qchoice -notmatch '^\d+$' -or -not @($qualities | Where-Object { [string]$_.
 foreach($m in $metas){Write-Host "Metadata [$($m.id)]: $($m.name)"}
 $mchoice=Read-Host 'Metadata profile ID (Enter cancels)'
 if($mchoice -notmatch '^\d+$' -or -not @($metas | Where-Object { [string]$_.id -eq $mchoice }).Count){Write-Host 'Cancelled.';return}
-$confirmation=Read-Host "Type IMPORT $($unique.Count) ARTISTS to begin the verified-ID/unique-exact-name candidate pass"
-if($confirmation -cne "IMPORT $($unique.Count) ARTISTS"){Write-Host 'Cancelled. No imports made.';return}
+# Profile reconciliation is intentionally independent from new-artist imports.
+# Only single unambiguous installed name/alias matches are eligible for profile changes.
+$profileMismatch=@()
+foreach($row in $unique){
+ $n=Normalize-Artist $row.Artist
+ if(-not $nameIndex.ContainsKey($n) -or $nameIndex[$n].Count -ne 1){continue}
+ $installed=@($nameIndex[$n].Values)[0]
+ if([int]$installed.qualityProfileId -ne [int]$qchoice -or [int]$installed.metadataProfileId -ne [int]$mchoice){
+  $profileMismatch+= [pscustomobject]@{Artist=$row.Artist;Id=$installed.id;ExistingQualityId=$installed.qualityProfileId;SelectedQualityId=[int]$qchoice;ExistingMetadataId=$installed.metadataProfileId;SelectedMetadataId=[int]$mchoice;ForeignArtistId=$installed.foreignArtistId}
+ }
+}
+$profileReport=Join-Path $ReportFolder 'lidarr-profile-differences.csv'
+$profileMismatch | Export-Csv -LiteralPath $profileReport -NoTypeInformation -Encoding UTF8
+Write-Host "`n===== PROFILE COMPARISON ====="
+Write-Host "Installed artists with unambiguous name/alias and different selected profiles: $($profileMismatch.Count)"
+Write-Host "Comparison report: $profileReport"
+Write-Host 'Existing artists with matching profiles will be left unchanged.'
+Write-Host 'Artists with ambiguous identity will not be updated.'
+Write-Host 'No album searches, downloads or file moves are part of this action.'
+$upgradeExisting=$false
+if($profileMismatch.Count -gt 0){
+ $upgradeAnswer=Read-Host 'Also UPDATE profiles on these existing artists? Type U to opt in (Enter/N leaves existing settings unchanged)'
+ $upgradeExisting=($upgradeAnswer.Trim() -ieq 'U')
+}
+Write-Host "WARNING: This pass covers up to $($unique.Count) artist credits. Unique exact-name lookup matches may still identify the wrong musician." -ForegroundColor Yellow
+Write-Host 'Collaboration credits and ambiguous identities remain on hold.'
+$confirmation=Read-Host 'Press Enter or type Y to START the approved import (N cancels)'
+if($confirmation.Trim() -notin @('','Y')){Write-Host 'Cancelled. No imports or updates made.';return}
 $resultsPath=Join-Path $ReportFolder 'lidarr-artist-import-results.csv'
 $progressFile=Join-Path $ReportFolder 'lidarr-import-progress.html'
 $results=@()
 if(Test-Path -LiteralPath $resultsPath){$results=@(Import-Csv -LiteralPath $resultsPath)}
 $complete=@{}
 foreach($r in $results){if($r.Artist -and $r.Status -ne 'API_ERROR'){$complete[(Normalize-Artist $r.Artist)]=$true}}
-$added=0;$present=0;$review=0;$errors=0;$done=0
+$added=0;$present=0;$review=0;$errors=0;$done=0;$updated=0;$upgradeErrors=0
 Save-Progress 'Starting artist reconciliation' 0 $unique.Count 0 0 0 0
 Start-Process -FilePath $progressFile
 foreach($row in $unique){
@@ -87,7 +113,7 @@ foreach($row in $unique){
  try {
   if($name -match '\s(&|,|\bfeat\.?\b|\bft\.?\b|\bwith\b|\bx\b|/)\s' -or $name -match '[\\/]'){ $status='COLLABORATION_REVIEW' }
   elseif($nameIndex.ContainsKey($normalized)){
-   if($nameIndex[$normalized].Count -eq 1){$status='ALREADY_PRESENT_BY_NAME';$resolved=@($nameIndex[$normalized].Values)[0]}
+   if($nameIndex[$normalized].Count -eq 1){$status='ALREADY_PRESENT_BY_NAME';$resolved=([string](@($nameIndex[$normalized].Values)[0].artistName))}
    else{$status='AMBIGUOUS_INSTALLED_NAME'}
   } else {
    $term=[uri]::EscapeDataString($name)
@@ -107,8 +133,8 @@ foreach($row in $unique){
      $candidate | Add-Member NoteProperty addOptions @{monitor='all';searchForMissingAlbums=$false} -Force
      $payload=$candidate | ConvertTo-Json -Depth 30
      $created=Invoke-RestMethod -Method Post -Uri "$base/artist" -Headers $headers -ContentType 'application/json; charset=utf-8' -Body ([Text.Encoding]::UTF8.GetBytes($payload)) -TimeoutSec 75 -ErrorAction Stop
-     $status='IMPORTED_NAME_ONLY_USER_APPROVED';$idIndex[$mbid]=$resolved
-     if($created.id){$nameIndex[$normalized]=@{([string]$created.id)=$resolved}}
+     $status='IMPORTED_NAME_ONLY_USER_APPROVED';$idIndex[$mbid]=$created
+     if($created.id){$nameIndex[$normalized]=@{([string]$created.id)=$created}}
     }
    }
   }
@@ -125,11 +151,34 @@ foreach($row in $unique){
  if($done % 25 -eq 0){Write-Host "Progress $done/$($unique.Count): added $added, already present $present, review $review, errors $errors"}
  Start-Sleep -Milliseconds 400
 }
+if($upgradeExisting){
+ Write-Host "`nUpdating selected profiles for $($profileMismatch.Count) unambiguous existing artists (separate opt-in)..."
+ $updateLog=@()
+ foreach($row in $profileMismatch){
+  $outcome='ERROR';$detail=''
+  try {
+   $latest=Invoke-RestMethod -Uri "$base/artist/$($row.Id)" -Headers $headers -TimeoutSec 75 -ErrorAction Stop
+   # Guard against a changed ID/name since initial snapshot.
+   if([string]$latest.foreignArtistId -ne [string]$row.ForeignArtistId){throw 'Artist identity changed since preview; skipped.'}
+   if([int]$latest.qualityProfileId -eq [int]$qchoice -and [int]$latest.metadataProfileId -eq [int]$mchoice){$outcome='ALREADY_MATCHING'}
+   else {
+    $latest.qualityProfileId=[int]$qchoice
+    $latest.metadataProfileId=[int]$mchoice
+    $body=$latest | ConvertTo-Json -Depth 30
+    Invoke-RestMethod -Method Put -Uri "$base/artist/$($row.Id)" -Headers $headers -ContentType 'application/json; charset=utf-8' -Body ([Text.Encoding]::UTF8.GetBytes($body)) -TimeoutSec 75 -ErrorAction Stop | Out-Null
+    $outcome='UPDATED';$updated++
+   }
+  }catch{$detail=$_.Exception.Message;$upgradeErrors++}
+  $updateLog+= [pscustomobject]@{Artist=$row.Artist;LidarrId=$row.Id;Status=$outcome;Detail=$detail}
+  $updateLog | Export-Csv -LiteralPath (Join-Path $ReportFolder 'lidarr-profile-updates.csv') -NoTypeInformation -Encoding UTF8
+ }
+}
 $left=@($results | Where-Object {$_.Status -notmatch '^(IMPORTED_|ALREADY_)'})
 $left | Export-Csv -LiteralPath (Join-Path $ReportFolder 'lidarr-artist-import-exceptions.csv') -NoTypeInformation -Encoding UTF8
 Save-Progress 'Finished. Review the saved reports for unresolved and ambiguous names.' $unique.Count $unique.Count $added $present $review $errors
 Write-Host "`n===== IMPORT SUMMARY ====="
 Write-Host "Added this run: $added; already present: $present; review: $review; errors: $errors"
+Write-Host "Existing artists with profiles updated: $updated; profile update errors: $upgradeErrors"
 Write-Host "Results: $resultsPath"
 Write-Host "Exceptions: $(Join-Path $ReportFolder 'lidarr-artist-import-exceptions.csv')"
 Write-Host 'No downloads, album searches, or file moves were requested.'

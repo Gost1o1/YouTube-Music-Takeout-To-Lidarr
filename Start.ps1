@@ -180,7 +180,7 @@ try {
     $countKnown=@($songs | Where-Object { $_.MatchStatus -eq 'NAME_IN_LIDARR_UNVERIFIED' }).Count
     $countMissing=@($songs | Where-Object { $_.MatchStatus -eq 'NOT_IN_LIDARR_BY_NAME' }).Count
     $sb = New-Object System.Text.StringBuilder
-    [void]$sb.AppendLine('<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Music Takeout Toolkit</title><style>body{font:16px system-ui,Segoe UI,sans-serif;max-width:1100px;margin:36px auto;padding:0 16px;color:#242936}a{color:#135ebc}.stats{display:flex;gap:12px;flex-wrap:wrap}.stat,.panel{border:1px solid #ddd;border-radius:12px;padding:16px;margin:12px 0}.stat b{display:block;font-size:28px}small{color:#616b78}table{border-collapse:collapse;width:100%;font-size:13px}th,td{border-bottom:1px solid #e4e6e8;padding:8px;text-align:left;word-break:break-word}input{padding:10px;max-width:100%;width:450px}.scroll{overflow:auto;max-height:520px}</style></head><body>')
+    [void]$sb.AppendLine('<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Music Takeout Toolkit</title><style>body{font:16px system-ui,Segoe UI,sans-serif;max-width:1100px;margin:36px auto;padding:0 16px;color:#242936}a{color:#135ebc}.stats{display:flex;gap:12px;flex-wrap:wrap}.stat,.panel{border:1px solid #ddd;border-radius:12px;padding:16px;margin:12px 0}.stat b{display:block;font-size:28px}small{color:#616b78}table{border-collapse:collapse;width:100%;min-width:850px;table-layout:fixed;font-size:14px}th,td{border-bottom:1px solid #e4e6e8;padding:10px 12px;text-align:left;overflow-wrap:anywhere;vertical-align:top}th:nth-child(1),td:nth-child(1){width:36%}th:nth-child(2),td:nth-child(2){width:39%}th:nth-child(3),td:nth-child(3){width:16%}th:nth-child(4),td:nth-child(4){width:9%}td:nth-child(4) a{white-space:nowrap}input{padding:10px;max-width:100%;width:450px}.scroll{overflow:auto;max-height:520px}</style></head><body>')
     [void]$sb.AppendLine('<h1>YouTube Music Takeout to Lidarr</h1><p><small>Local audit. No downloads, no Lidarr changes, no file moves.</small></p>')
     [void]$sb.AppendLine('<div class="stats"><div class="stat"><b>'+$songs.Count+'</b>Music library track records</div><div class="stat"><b>'+$artistSet.Count+'</b>Artist credits</div><div class="stat"><b>'+$withVideo+'</b>Valid YouTube IDs</div><div class="stat"><b>'+$scanned+'</b>Recognized CSV files</div><div class="stat"><b>'+$uploadedAudioCount+'</b>Exported audio files (not processed)</div></div>')
     if ($lidarrCount -ge 0) { [void]$sb.AppendLine('<div class="panel"><h2>Lidarr comparison</h2><p>Connected: '+(Html $lidarrState)+'; installed artists: '+$lidarrCount+'; name-based matches: '+$countKnown+'; missing names: '+$countMissing+'. These are not verified recordings.</p></div>') }
@@ -221,8 +221,34 @@ try {
                 '2' { Start-Process -FilePath $runFolder }
                 '3' { Start-Process 'https://takeout.google.com/settings/takeout' }
                 '4' { break }
-                '5' { try { & (Join-Path $PSScriptRoot 'Lidarr-Review.ps1') -TracksCsv $tracksPath -ReportFolder $runFolder -LidarrUrl $LidarrUrl -LidarrApiKey $LidarrApiKey } catch { Write-Warning ('Lidarr review failed: ' + $_.Exception.Message) } }
-                '6' { try { & (Join-Path $PSScriptRoot 'Lidarr-Import.ps1') -ArtistsCsv $artistPath -ReportFolder $runFolder -LidarrUrl $LidarrUrl -LidarrApiKey $LidarrApiKey } catch { Write-Warning ('Lidarr import failed: ' + $_.Exception.Message) } }
+                '5' {
+                    try {
+                        if (-not $LidarrUrl -or -not $LidarrApiKey) {
+                            . (Join-Path $PSScriptRoot 'Lidarr-Connection.ps1')
+                            $lidarrSession=Get-LidarrConnection -Url $LidarrUrl -ApiKey $LidarrApiKey
+                            if(-not $lidarrSession){continue}
+                            $LidarrUrl=$lidarrSession.Url; $LidarrApiKey=$lidarrSession.ApiKey
+                        }
+                        & (Join-Path $PSScriptRoot 'Lidarr-Review.ps1') -TracksCsv $tracksPath -ReportFolder $runFolder -LidarrUrl $LidarrUrl -LidarrApiKey $LidarrApiKey
+                    } catch {
+                        Write-Warning ('Lidarr review failed: ' + $_.Exception.Message)
+                        if($_.Exception.Message -match '(401|403|Unauthorized|Forbidden|Invalid.*key)'){$LidarrApiKey=''}
+                    }
+                }
+                '6' {
+                    try {
+                        if (-not $LidarrUrl -or -not $LidarrApiKey) {
+                            . (Join-Path $PSScriptRoot 'Lidarr-Connection.ps1')
+                            $lidarrSession=Get-LidarrConnection -Url $LidarrUrl -ApiKey $LidarrApiKey
+                            if(-not $lidarrSession){continue}
+                            $LidarrUrl=$lidarrSession.Url; $LidarrApiKey=$lidarrSession.ApiKey
+                        }
+                        & (Join-Path $PSScriptRoot 'Lidarr-Import.ps1') -ArtistsCsv $artistPath -ReportFolder $runFolder -LidarrUrl $LidarrUrl -LidarrApiKey $LidarrApiKey
+                    } catch {
+                        Write-Warning ('Lidarr import failed: ' + $_.Exception.Message)
+                        if($_.Exception.Message -match '(401|403|Unauthorized|Forbidden|Invalid.*key)'){$LidarrApiKey=''}
+                    }
+                }
                 default { Write-Host 'Choose 1 through 6.' }
             }
         } until ($choice -eq '4')
