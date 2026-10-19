@@ -1,4 +1,4 @@
-# YouTube Music Takeout to Lidarr — v0.5.3 startup reliability fix
+# YouTube Music Takeout to Lidarr — v0.5.4 startup reliability fix
 
 A Windows desktop wizard that guides users one step at a time through choosing their Google account, requesting a YouTube Music Takeout archive, locating the ZIP, and generating a local music inventory.
 

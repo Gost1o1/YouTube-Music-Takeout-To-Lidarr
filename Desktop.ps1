@@ -37,7 +37,7 @@ function New-Button($text,$x,$y,$w,$handler){
  $b.Add_Click($handler);$script:form.Controls.Add($b);return $b
 }
 $script:form=New-Object System.Windows.Forms.Form
-$script:form.Text='YouTube Music Takeout to Lidarr  |  v0.5.3'
+$script:form.Text='YouTube Music Takeout to Lidarr  |  v0.5.4'
 $script:form.Size=New-Object System.Drawing.Size(1100,770)
 $script:form.StartPosition='CenterScreen';$script:form.MinimumSize=New-Object System.Drawing.Size(850,650)
 $script:form.Font=New-Object System.Drawing.Font('Segoe UI',10)
@@ -183,19 +183,20 @@ $script:wizardSkip.Size=New-Object System.Drawing.Size(360,46)
 $script:wizard.Controls.Add($script:wizardSkip)
 
 function Layout-Wizard {
- $panelWidth=$script:wizard.ClientSize.Width
+ $panelWidth=[math]::Max(1,$script:wizard.ClientSize.Width)
  $centerX=[int](($panelWidth-880)/2)
  $textX=[int](($panelWidth-820)/2)
  $buttonX=[int](($panelWidth-360)/2)
  $progX=[int](($panelWidth-260)/2)
  $script:wizardProgress.Location=New-Object System.Drawing.Point($progX,46)
- $script:wizardHeading.Location=New-Object System.Drawing.Point($centerX,98)
- $script:wizardText.Location=New-Object System.Drawing.Point($textX,172)
- $script:wizardMain.Location=New-Object System.Drawing.Point($buttonX,306)
- if($script:wizardNext.Visible){$script:wizardNext.Location=New-Object System.Drawing.Point($buttonX,370)}
- if($script:wizardSkip.Visible){
-  $y=if($script:wizardNext.Visible){434}else{370}
-  $script:wizardSkip.Location=New-Object System.Drawing.Point($buttonX,$y)
+ $script:wizardHeading.Location=New-Object System.Drawing.Point($centerX,110)
+ if($script:wizardStage -eq 0){
+  $script:wizardMain.Location=New-Object System.Drawing.Point($buttonX,245)
+  $script:wizardSkip.Location=New-Object System.Drawing.Point($buttonX,309)
+ } else {
+  $script:wizardText.Location=New-Object System.Drawing.Point($textX,185)
+  $script:wizardMain.Location=New-Object System.Drawing.Point($buttonX,320)
+  $script:wizardNext.Location=New-Object System.Drawing.Point($buttonX,384)
  }
 }
 $script:wizard.Add_Resize({Layout-Wizard})
@@ -205,15 +206,16 @@ function Set-WizardStage([int]$stage){
  switch($stage){
   0 {
    $script:wizardProgress.Value=33
-   $script:wizardHeading.Text='Where is your music stored?'
-   $script:wizardText.Text='Choose the Google account that contains your YouTube Music library, or continue with a Takeout ZIP you already downloaded.'
+   $script:wizardHeading.Text='Choose Your Data'
+   $script:wizardText.Text='';$script:wizardText.Visible=$false
    $script:wizardMain.Text='Choose Google Account'
    $script:wizardNext.Visible=$false
    $script:wizardSkip.Visible=$true
-   $script:wizardSkip.Text='Use Already Downloaded YouTube Music Data'
+   $script:wizardSkip.Text='Downloaded Data File'
   }
   1 {
    $script:wizardProgress.Value=66
+   $script:wizardText.Visible=$true
    $script:wizardHeading.Text='Request your YouTube Music export'
    $script:wizardText.Text='Google Takeout will open with YouTube and YouTube Music preselected. On Google''s page keep these settings: send download link via email, export once, ZIP, and 50 GB. Then click Create export.'
    $script:wizardMain.Text='Open Google Takeout'
@@ -223,6 +225,7 @@ function Set-WizardStage([int]$stage){
   }
   2 {
    $script:wizardProgress.Value=100
+   $script:wizardText.Visible=$true
    $script:wizardHeading.Text='Wait for Google to prepare your export'
    $script:wizardText.Text='When Google emails that your export is ready, download the ZIP. Then continue here so the app can locate the newest Takeout file or let you choose it manually.'
    $script:wizardMain.Text='Find the Ready Email in Gmail'
@@ -267,6 +270,7 @@ $script:wizardSkip.Add_Click({
  $picker.Dispose()
 })
 Set-WizardStage 0
+$script:form.Add_Shown({Layout-Wizard})
 if($InputPath -and (Test-Path -LiteralPath $InputPath)){$script:wizard.Hide()}
 
 [void][System.Windows.Forms.Application]::Run($script:form)
