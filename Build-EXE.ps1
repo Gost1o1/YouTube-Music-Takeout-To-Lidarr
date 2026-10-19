@@ -10,11 +10,12 @@ class Program {
   static void Main() {
     try {
       string folder = AppDomain.CurrentDomain.BaseDirectory;
-      string launcher = Path.Combine(folder, "Launch.cmd");
-      if (!File.Exists(launcher)) throw new FileNotFoundException("Launch.cmd was not found.");
-      ProcessStartInfo p = new ProcessStartInfo("cmd.exe", "/c \"\"" + launcher + "\"\"");
+      string launcher = Path.Combine(folder, "Launch.vbs");
+      if (!File.Exists(launcher)) throw new FileNotFoundException("Launch.vbs was not found.");
+      ProcessStartInfo p = new ProcessStartInfo("wscript.exe", "\"" + launcher + "\"");
       p.WorkingDirectory = folder;
       p.UseShellExecute = true;
+      p.WindowStyle = ProcessWindowStyle.Hidden;
       Process.Start(p);
     } catch(Exception ex) {
       MessageBox.Show(ex.Message, "YouTube Music to Lidarr", MessageBoxButtons.OK, MessageBoxIcon.Error);

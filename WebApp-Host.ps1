@@ -1,4 +1,4 @@
-﻿#Requires -Version 5.1
+#Requires -Version 5.1
 [CmdletBinding()]
 param([string]$InputPath='')
 $ErrorActionPreference='Stop'
@@ -9,8 +9,9 @@ $root=Join-Path $docs 'MusicTakeoutToolkit'
 [IO.Directory]::CreateDirectory($root) | Out-Null
 $script:serverLog=Join-Path $root 'startup-errors.log'
 function Log-Server([string]$message){try{Add-Content -LiteralPath $script:serverLog -Value ('['+(Get-Date).ToString('s')+'] '+$message) -Encoding UTF8}catch{}}
-$script:data=[ordered]@{archive=$InputPath;analyzing=$false;analysisError='';summary=$null;tracks=@();report='';lidarrUrl='http://127.0.0.1:8686';lidarrConnected=$false;lidarrArtists=@();comparison=$null;eventLog=@()}
-$script:child=$null;$script:outLog='';$script:errLog='';$script:analysisStart=Get-Date;$script:runRoot=''
+$script:data=[ordered]@{archive=$InputPath;analyzing=$false;analysisError='';summary=$null;tracks=@();report='';lidarrUrl='http://127.0.0.1:8686';lidarrConnected=$false;lidarrArtists=@();lidarrKey='';comparison=$null;verification=$null;eventLog=@()}
+$script:shutdownRequested=$false;$script:clientEverConnected=$false;$script:lastHeartbeat=Get-Date
+$script:verifyChild=$null;$script:verifyStateFile='';$script:child=$null;$script:outLog='';$script:errLog='';$script:analysisStart=Get-Date;$script:runRoot=''
 function Send-Json($ctx,$obj,[int]$code=200){
   $json=ConvertTo-Json -InputObject $obj -Depth 12 -Compress
   $bytes=[Text.Encoding]::UTF8.GetBytes($json)
@@ -96,6 +97,8 @@ function Handle($ctx){
   try {
     $path=$ctx.Request.Url.AbsolutePath
     $method=$ctx.Request.HttpMethod
+    if($path -eq '/api/heartbeat'){ $script:clientEverConnected=$true;$script:lastHeartbeat=Get-Date;Send-Json $ctx @{ok=$true};return }
+    if($path -eq '/api/shutdown'){ $script:shutdownRequested=$true;Send-Json $ctx @{ok=$true};return }
     if($path -eq '/' -or $path -eq '/index.html'){
       $file=Join-Path $PSScriptRoot 'AppUI\index.html'
       $bytes=[IO.File]::ReadAllBytes($file)
@@ -145,20 +148,107 @@ function Handle($ctx){
       $url=$url.TrimEnd('/')
       $headers=@{'X-Api-Key'=$key}
       $artists=@(Invoke-RestMethod -Uri ($url+'/api/v1/artist') -Headers $headers -TimeoutSec 15 -ErrorAction Stop)
-      $script:data.lidarrUrl=$url;$script:data.lidarrConnected=$true;$script:data.lidarrArtists=$artists
+      $script:data.lidarrUrl=$url;$script:data.lidarrConnected=$true;$script:data.lidarrArtists=$artists;$script:data.lidarrKey=$key;$script:data.comparison=$null
       # Key intentionally used only for this request; the review interface is read-only.
-      Send-Json $ctx @{connected=$true;artists=$artists.Count};return
+      Send-Json $ctx @{connected=$true;artists=$artists.Count;artistRecords=@($artists | ForEach-Object { @{artistName=$_.artistName;foreignArtistId=$_.foreignArtistId} })};return
+    }
+    if($path -eq '/api/verify/status'){
+      $status=$null
+      if($script:verifyStateFile -and (Test-Path -LiteralPath $script:verifyStateFile)){
+        try{$status=Get-Content -LiteralPath $script:verifyStateFile -Raw -Encoding UTF8|ConvertFrom-Json}catch{}
+      }
+      $running=$false
+      if($script:verifyChild){$script:verifyChild.Refresh();$running=(-not $script:verifyChild.HasExited)}
+      $exitCode=$null
+      if($script:verifyChild -and -not $running){$exitCode=$script:verifyChild.ExitCode}
+      $errorTail=''
+      $log=Join-Path (Join-Path $root 'musicbrainz-verification') 'cache\worker-errors.log'
+      if(Test-Path -LiteralPath $log){$errorTail=((Get-Content -LiteralPath $log -Tail 2 -ErrorAction SilentlyContinue) -join ' | ')}
+      Send-Json $ctx @{started=([bool]$script:verifyStateFile);running=$running;status=$status;exitCode=$exitCode;errorDetail=$errorTail};return
+    }
+    if($path -eq '/api/verify/start'){
+      if(-not $script:data.lidarrConnected){throw 'Connect to Lidarr before verification.'}
+      if(-not $script:data.report){throw 'Analyze your YouTube Music archive first.'}
+      if($script:verifyChild){$script:verifyChild.Refresh();if(-not $script:verifyChild.HasExited){Send-Json $ctx @{started=$true;running=$true};return}}
+      $csv=Join-Path $script:data.report 'tracks.csv'
+      if(-not(Test-Path -LiteralPath $csv)){throw 'The Takeout tracks.csv report is missing.'}
+      $verifyRoot=Join-Path $root 'musicbrainz-verification'
+      [IO.Directory]::CreateDirectory($verifyRoot)|Out-Null
+      $artistJson=Join-Path $verifyRoot 'lidarr-artists.json'
+      # Only names and public MusicBrainz IDs; never persist API key.
+      @($script:data.lidarrArtists|ForEach-Object {@{artistName=$_.artistName;foreignArtistId=$_.foreignArtistId}})|ConvertTo-Json -Depth 5|Set-Content -LiteralPath $artistJson -Encoding UTF8
+      $script:verifyStateFile=Join-Path $verifyRoot 'verification-status.json'
+      # Keep prior status to resume after an interrupted worker run.
+      $worker=Join-Path $PSScriptRoot 'MusicBrainz-Verify.ps1'
+      $argsList=@('-NoProfile','-ExecutionPolicy','Bypass','-File',$worker,'-TracksCsv',$csv,'-ArtistsJson',$artistJson,'-CacheRoot',(Join-Path $verifyRoot 'cache'),'-StatusFile',$script:verifyStateFile)
+      $script:verifyChild=Start-Process -FilePath (Join-Path $PSHOME 'powershell.exe') -ArgumentList ($argsList|ForEach-Object {'"'+($_ -replace '"','')+'"'}) -PassThru -WindowStyle Hidden
+      Log-Server ('MusicBrainz verification started for '+$script:data.tracks.Count+' songs')
+      Send-Json $ctx @{started=$true;running=$true};return
     }
     if($path -eq '/api/lidarr/compare'){
       if(-not $script:data.lidarrConnected){throw 'Connect to Lidarr first.'}
       if(-not $script:data.tracks.Count){throw 'Analyze YouTube Music data first.'}
-      $existing=New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
-      foreach($a in $script:data.lidarrArtists){if($a.artistName){[void]$existing.Add(([regex]::Replace($a.artistName.ToLowerInvariant(),'[^\p{L}\p{N}]','')))}}
-      $artists=New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
-      $present=New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
-      $unknown=New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
-      foreach($t in $script:data.tracks){$a=[string]$t.Artist;if(-not $a){continue};[void]$artists.Add($a);$n=[regex]::Replace($a.ToLowerInvariant(),'[^\p{L}\p{N}]','');if($existing.Contains($n)){[void]$present.Add($a)}else{[void]$unknown.Add($a)}}
-      $script:data.comparison=@{totalArtists=$artists.Count;namePresent=$present.Count;requiresVerification=$unknown.Count;songs=$script:data.tracks.Count;note='Name comparison only. MusicBrainz recording identities are not verified. No new additions are authorized.'}
+      # Read-only check. An artist-name match is a provisional identity, never proof of a MusicBrainz match.
+      $normalize={param([string]$v) if(-not $v){return ''};return [regex]::Replace($v.ToLowerInvariant(),'[^\p{L}\p{N}]','')}
+      $known=@{};foreach($a in $script:data.lidarrArtists){
+        $n=& $normalize ([string]$a.artistName)
+        if($n -and -not $known.ContainsKey($n)){$known[$n]=$a}
+      }
+      $sourceArtists=New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+      $matchedArtists=New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+      $missingArtists=New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+      foreach($t in $script:data.tracks){
+        $a=[string]$t.Artist;if(-not $a){continue}
+        [void]$sourceArtists.Add($a)
+        if($known.ContainsKey((& $normalize $a))){[void]$matchedArtists.Add($a)}else{[void]$missingArtists.Add($a)}
+      }
+      # Fetch actual Lidarr tracks for source artist names that match an existing Lidarr artist.
+      # No search, import, monitoring changes or downloads are issued.
+      $trackIndex=@{};$trackRequestErrors=0;$checkedArtists=0;$checkedIds=@{}
+      $headers=@{'X-Api-Key'=$script:data.lidarrKey}
+      foreach($sourceArtist in $matchedArtists){
+        $artist=$known[(& $normalize $sourceArtist)]
+        if(-not $artist.id){continue}
+        $id=[string]$artist.id
+        if($checkedIds.ContainsKey($id)){continue};$checkedIds[$id]=$true
+        try {
+          $uri=$script:data.lidarrUrl+'/api/v1/track?artistId='+[uri]::EscapeDataString($id)
+          $artistTracks=@(Invoke-RestMethod -Uri $uri -Headers $headers -TimeoutSec 25 -ErrorAction Stop)
+          $index=@{}
+          foreach($lt in $artistTracks){
+            $title=& $normalize ([string]$lt.title)
+            if(-not $title){continue}
+            if(-not $index.ContainsKey($title)){$index[$title]=@()}
+            $index[$title]+=@($lt)
+          }
+          $trackIndex[$id]=$index;$checkedArtists++
+        }catch{$trackRequestErrors++;Log-Server ('Track inventory read failed for artist id '+$id+': '+$_.Exception.Message)}
+      }
+      $trackCandidates=0;$tracksWithFiles=0;$songNeedsReview=0;$songNotTracked=0
+      foreach($t in $script:data.tracks){
+        $a=[string]$t.Artist;$song=[string]$t.Song
+        $n=& $normalize $a;$title=& $normalize $song
+        if(-not $a -or -not $song -or -not $known.ContainsKey($n)){$songNeedsReview++;continue}
+        $lidarrArtist=$known[$n];$id=[string]$lidarrArtist.id
+        if(-not $trackIndex.ContainsKey($id)){$songNeedsReview++;continue}
+        if($title -and $trackIndex[$id].ContainsKey($title)){
+          $trackCandidates++
+          $hasFile=$false
+          foreach($lt in $trackIndex[$id][$title]){if($lt.hasFile -eq $true -or ([int]$lt.trackFileId -gt 0)){$hasFile=$true;break}}
+          if($hasFile){$tracksWithFiles++}
+          # A file-backed title is a provisional likely-present match, not exact recording verification.
+          if(-not $hasFile){$songNeedsReview++}
+        }else{$songNotTracked++;$songNeedsReview++}
+      }
+      $script:data.comparison=@{
+        totalArtists=$sourceArtists.Count;namePresent=$matchedArtists.Count;requiresVerification=$missingArtists.Count
+        songs=$script:data.tracks.Count;tracksChecked=$checkedArtists;trackReadErrors=$trackRequestErrors
+        songTitleCandidates=$trackCandidates;songFileCandidates=$tracksWithFiles
+        songsNeedsReview=$songNeedsReview;songsNotTrackedByName=$songNotTracked
+        verifiedArtistsToAdd=0;verifiedSongsToSearch=0
+        note='Read-only comparison complete. Results use read-only artist-name, song-title and file-availability checks. Already in Lidarr counts are provisional candidates, not confirmed recording identities. Needs Review means names without a Lidarr match or songs without a matching file (including uncheckable tracks). Pending to Be Added remains zero until recording-level MusicBrainz verification. No artists or songs have been added.'
+      }
+      Log-Server ('Lidarr comparison: artists '+$matchedArtists.Count+' name matches; '+$missingArtists.Count+' unmatched names; '+$trackCandidates+' title candidates; '+$tracksWithFiles+' file candidates; '+$trackRequestErrors+' artist track-read errors')
       Send-Json $ctx $script:data.comparison;return
     }
     Send-Error $ctx 'Unknown action.' 404
@@ -176,12 +266,24 @@ $edgePaths=@("$env:ProgramFiles (x86)\Microsoft\Edge\Application\msedge.exe","$e
 $edge=$edgePaths|Where-Object{Test-Path -LiteralPath $_}|Select-Object -First 1
 if($edge){Start-Process -FilePath $edge -ArgumentList @('--app='+$url,'--window-size=1280,900') | Out-Null}
 else{Start-Process $url | Out-Null}
-Write-Host ('YouTube Music to Lidarr v0.6.4 UI running at '+$url)
+Write-Host ('YouTube Music to Lidarr v0.7.0 UI running at '+$url)
 Write-Host 'Keep this PowerShell process open while using the app. Press Ctrl+C to stop.'
 try {
   while($listener.IsListening){
     $pending=$listener.BeginGetContext($null,$null)
-    while(-not $pending.AsyncWaitHandle.WaitOne(250)) {Check-Process}
+    while(-not $pending.AsyncWaitHandle.WaitOne(250)) {
+      Check-Process
+      if($script:shutdownRequested -or ($script:clientEverConnected -and ((Get-Date)-$script:lastHeartbeat).TotalSeconds -gt 18)){break}
+    }
+    if($script:shutdownRequested -or ($script:clientEverConnected -and ((Get-Date)-$script:lastHeartbeat).TotalSeconds -gt 18)){break}
     try{$context=$listener.EndGetContext($pending);Handle $context}catch{Log-Server ('Request processing failed: '+$_.Exception.ToString());Write-Warning ('Local service request failed: '+$_.Exception.Message)}
   }
-}catch{Log-Server ('Server stopped unexpectedly: '+$_.Exception.ToString());throw}finally{Log-Server 'Listener closed';$listener.Stop();$listener.Close()}
+}catch{Log-Server ('Server stopped unexpectedly: '+$_.Exception.ToString());throw}finally{
+ Log-Server 'Application window closed or disconnected; stopping worker processes and listener'
+ foreach($proc in @($script:verifyChild,$script:child)){
+  if($null -ne $proc){try{$proc.Refresh();if(-not $proc.HasExited){$proc.Kill();$proc.WaitForExit(2500)|Out-Null}}catch{Log-Server ('Worker cleanup: '+$_.Exception.Message)}}
+ }
+ try{$listener.Stop()}catch{}
+ try{$listener.Close()}catch{}
+ Log-Server 'Listener closed'
+}
