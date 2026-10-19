@@ -1,0 +1,12 @@
+.env
+*.zip
+*.7z
+*.rar
+*Takeout*
+!README.md
+!Start.ps1
+!bootstrap.ps1
+!LICENSE
+reports/
+output/
+*.log
