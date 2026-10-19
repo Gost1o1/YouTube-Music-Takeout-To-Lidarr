@@ -10,7 +10,7 @@ $root=Join-Path $docs 'MusicTakeoutToolkit'
 $script:serverLog=Join-Path $root 'startup-errors.log'
 function Log-Server([string]$message){try{Add-Content -LiteralPath $script:serverLog -Value ('['+(Get-Date).ToString('s')+'] '+$message) -Encoding UTF8}catch{}}
 $script:data=[ordered]@{archive=$InputPath;analyzing=$false;analysisError='';summary=$null;tracks=@();report='';lidarrUrl='http://127.0.0.1:8686';lidarrConnected=$false;lidarrArtists=@();comparison=$null;eventLog=@()}
-$script:child=$null;$script:outLog='';$script:errLog='';$script:analysisStart=Get-Date
+$script:child=$null;$script:outLog='';$script:errLog='';$script:analysisStart=Get-Date;$script:runRoot=''
 function Send-Json($ctx,$obj,[int]$code=200){
   $json=ConvertTo-Json -InputObject $obj -Depth 12 -Compress
   $bytes=[Text.Encoding]::UTF8.GetBytes($json)
@@ -48,18 +48,32 @@ function Check-Process {
   $script:data.analyzing=$false
   $exit=$script:child.ExitCode
   $err=if(Test-Path -LiteralPath $script:errLog){[IO.File]::ReadAllText($script:errLog)}else{''}
-  if($exit -ne 0){$script:data.analysisError=('Analysis failed: '+$err);return}
-  $reports=@(Get-ChildItem -LiteralPath $root -Directory -ErrorAction SilentlyContinue | Where-Object { (Test-Path (Join-Path $_.FullName 'tracks.csv')) -and $_.LastWriteTime -ge $script:analysisStart.AddSeconds(-6)} | Sort-Object LastWriteTime -Descending)
-  if(-not $reports.Count){$script:data.analysisError='Analysis completed but a new tracks.csv could not be found.';return}
+  $out=if(Test-Path -LiteralPath $script:outLog){[IO.File]::ReadAllText($script:outLog)}else{''}
+  # Use a dedicated output root per analysis. Avoid relying on directory timestamps.
+  $reports=@(Get-ChildItem -LiteralPath $script:runRoot -Filter 'tracks.csv' -File -Recurse -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending)
+  if(-not $reports.Count){
+    $message='The parser did not produce tracks.csv (exit code '+$exit+').'
+    $diagnostic=($err+' '+$out).Trim()
+    if($diagnostic){$message+=' '+$diagnostic.Substring(0,[Math]::Min(1600,$diagnostic.Length))}
+    $script:data.analysisError=$message
+    Log-Server ('Analyze failed: '+$message)
+    return
+  }
   try {
-    $script:data.report=$reports[0].FullName
-    $all=@(Import-Csv -LiteralPath (Join-Path $script:data.report 'tracks.csv') -Encoding UTF8)
+    $script:data.report=$reports[0].DirectoryName
+    $all=@(Import-Csv -LiteralPath $reports[0].FullName -Encoding UTF8)
+    if(-not $all.Count){throw 'The report contains no music records.'}
     $script:data.tracks=$all
     $names=New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
     $links=0
     foreach($t in $all){if($t.Artist){[void]$names.Add($t.Artist.Trim())};if($t.YouTubeUrl -match '^https?://'){$links++}}
-    $script:data.summary=@{songs=$all.Count;artists=$names.Count;artistCreditsLabel='Unique displayed artist strings';links=$links;uploadedAudio='See full Takeout report';warning=if($err){'Analysis completed with nonfatal warnings; see logs.'}else{''}}
-  } catch {$script:data.analysisError=$_.Exception.Message}
+    $script:data.summary=@{songs=$all.Count;artists=$names.Count;artistCreditsLabel='Unique displayed artist strings';links=$links;uploadedAudio='See full Takeout report';warning=if($err){'Analysis completed with nonfatal warnings.'}else{''}}
+    if($exit -ne 0){Log-Server ('Parser returned exit '+$exit+' but valid tracks.csv was recovered. '+$err)}
+    Log-Server ('Analysis succeeded: '+$all.Count+' songs; '+$script:data.report)
+  } catch {
+    $script:data.analysisError='Unable to load parsed tracks: '+$_.Exception.Message
+    Log-Server $script:data.analysisError
+  }
 }
 function Check-LidarrUrl([string]$url){
   if(-not $url -or $url -notmatch '^https?://'){throw 'Enter an http:// or https:// Lidarr address.'}
@@ -108,12 +122,15 @@ function Handle($ctx){
     if($path -eq '/api/analyze'){
       if($script:data.analyzing){Send-Json $ctx @{started=$true};return}
       $archive=Get-ValidatedArchive $script:data.archive
-      $script:data.summary=$null;$script:data.tracks=@();$script:data.analysisError=''
+      $script:data.summary=$null;$script:data.tracks=@();$script:data.analysisError='';$script:data.report=''
       $script:analysisStart=Get-Date
-      $script:outLog=Join-Path $root ('ui-engine-'+[guid]::NewGuid().ToString('N')+'.out.log')
-      $script:errLog=Join-Path $root ('ui-engine-'+[guid]::NewGuid().ToString('N')+'.err.log')
+      $script:runRoot=Join-Path $root ('runs\'+[guid]::NewGuid().ToString('N'))
+      [IO.Directory]::CreateDirectory($script:runRoot) | Out-Null
+      $script:outLog=Join-Path $script:runRoot ('ui-engine-'+[guid]::NewGuid().ToString('N')+'.out.log')
+      $script:errLog=Join-Path $script:runRoot ('ui-engine-'+[guid]::NewGuid().ToString('N')+'.err.log')
       $engine=Join-Path $PSScriptRoot 'Takeout-Engine.ps1'
-      $cmd='-NoProfile -ExecutionPolicy Bypass -File "'+$engine+'" -InputPath "'+$archive+'" -OutputRoot "'+$root+'" -NoPrompt'
+      $cmd='-NoProfile -ExecutionPolicy Bypass -File "'+$engine+'" -InputPath "'+$archive+'" -OutputRoot "'+$script:runRoot+'" -NoPrompt'
+      Log-Server ('Starting analysis: '+$archive+' Output: '+$script:runRoot)
       $script:child=Start-Process -FilePath (Join-Path $PSHOME 'powershell.exe') -ArgumentList $cmd -PassThru -WindowStyle Hidden -RedirectStandardOutput $script:outLog -RedirectStandardError $script:errLog
       $script:data.analyzing=$true
       Send-Json $ctx @{started=$true};return
@@ -159,7 +176,7 @@ $edgePaths=@("$env:ProgramFiles (x86)\Microsoft\Edge\Application\msedge.exe","$e
 $edge=$edgePaths|Where-Object{Test-Path -LiteralPath $_}|Select-Object -First 1
 if($edge){Start-Process -FilePath $edge -ArgumentList @('--app='+$url,'--window-size=1280,900') | Out-Null}
 else{Start-Process $url | Out-Null}
-Write-Host ('YouTube Music to Lidarr UI running at '+$url)
+Write-Host ('YouTube Music to Lidarr v0.6.3 UI running at '+$url)
 Write-Host 'Keep this PowerShell process open while using the app. Press Ctrl+C to stop.'
 try {
   while($listener.IsListening){

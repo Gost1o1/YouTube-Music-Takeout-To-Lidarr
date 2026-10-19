@@ -1,19 +1,19 @@
-# YouTube Music Takeout to Lidarr — v0.6.2
+# YouTube Music Takeout to Lidarr v0.6.3
 
-## Windows application
+## Launch (Windows)
 
-Run `Start.ps1` with Windows PowerShell 5.1 (`powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Start.ps1`). No admin permission required. The launcher starts a localhost-only HTTP service and opens a standalone Microsoft Edge app window where Edge is installed. Keep the PowerShell process running while using the application. If Edge is not installed, the default web browser is used.
+Extract the whole ZIP first. **Double-click `Launch.cmd`** (the Windows command launcher). No working-directory setup, admin rights, or typed PowerShell command is required. Keep the launcher window open during the session; it hosts the local service. Do not move `Launch.cmd` outside its extracted application folder.
 
-**This is the actual, screenshot-matched 10-screen UI**, not the earlier Windows Forms dashboard. Takeout detection, file-picker fallback, the existing archive parser, music preview, and Lidarr connection / read-only name comparison are wired to real local operations. Other screens are displayed to review the design, but importing artists, recording-level MusicBrainz verification, licensed audio preview, release searches, downloads, persistence, retry, and export-report controls are **not implemented**. They remain disabled or clearly identified as unavailable.
+An optional real `.exe` launcher can be built on Windows with `Build-EXE.cmd` (uses the built-in Windows .NET Framework compiler). This creates a small launcher; it does **not** compile the full application or embed the parser.
 
-No file content, API key or library data is sent to external services by the local UI. Clicking Google Takeout, MusicBrainz or YouTube Music links opens those external sites explicitly. Lidarr credentials are transmitted only from the local app to the Lidarr server address the user configures; no credentials are written to reports.
+## Google account
 
-Output reports from the existing Takeout parser are stored in `Documents\MusicTakeoutToolkit`. If analysis fails, engine output and diagnostic logs are stored there.
+Google Takeout opens in the standard Edge/browser profile to use the user's existing Google session. An embedded WebView2/browser has a separate profile and generally will not reuse existing Edge sign-in cookies. We do not accept Google passwords and do not automatically create an export.
 
-## Windows-specific validation
+## Analysis
 
-This package was statically reviewed and its ZIP tested, but it has **not been run on Windows**. Test with an existing Takeout ZIP; verify scan -> summary -> connection. Report errors before trying future import features.
+Every scan uses a unique `Documents\MusicTakeoutToolkit\runs\...` output folder. The app checks `tracks.csv` directly, even when PowerShell returns nonfatal warnings. Errors and diagnostic logs live in that run folder, and startup messages go to `Documents\MusicTakeoutToolkit\startup-errors.log`.
 
-## Troubleshooting scan connection
+## Safety
 
-Keep the PowerShell window open while scanning: this window hosts the localhost service. A red connection warning indicates that the browser cannot reach that service; it is not evidence of an invalid Takeout ZIP. Review `Documents\MusicTakeoutToolkit\startup-errors.log` for server errors. The application no longer offers a stage dropdown; navigation uses buttons. The scan button is the action that initiates the search and analysis.
+This remains a staged build. Verified artist imports, release searches, previews, and retries are **not yet enabled**. The library comparison is name-based only, not MusicBrainz verification. No Lidarr imports/downloads without approval.
