@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 [CmdletBinding()]
 param([string]$InputPath='')
 $ErrorActionPreference='Stop'
@@ -37,7 +37,7 @@ function New-Button($text,$x,$y,$w,$handler){
  $b.Add_Click($handler);$script:form.Controls.Add($b);return $b
 }
 $script:form=New-Object System.Windows.Forms.Form
-$script:form.Text='YouTube Music Takeout to Lidarr  |  v0.5.6'
+$script:form.Text='YouTube Music Takeout to Lidarr  |  v0.5.7'
 $script:form.Size=New-Object System.Drawing.Size(1100,770)
 $script:form.StartPosition='CenterScreen';$script:form.MinimumSize=New-Object System.Drawing.Size(850,650)
 $script:form.Font=New-Object System.Drawing.Font('Segoe UI',10)
@@ -194,14 +194,21 @@ function Layout-Wizard {
   $script:wizardMain.Location=New-Object System.Drawing.Point($buttonX,245)
   $script:wizardSkip.Location=New-Object System.Drawing.Point($buttonX,309)
  } elseif($script:wizardStage -eq 1){
+  $script:wizardText.Size=New-Object System.Drawing.Size(820,380)
   $script:wizardText.Location=New-Object System.Drawing.Point($textX,164)
   $script:wizardMain.Location=New-Object System.Drawing.Point($buttonX,575)
   $script:wizardNext.Location=New-Object System.Drawing.Point($buttonX,635)
  } else {
-  $script:wizardText.Location=New-Object System.Drawing.Point($textX,205)
-  $script:wizardMain.Location=New-Object System.Drawing.Point($buttonX,390)
-  $script:wizardNext.Location=New-Object System.Drawing.Point($buttonX,455)
+  # Keep the explanatory label above the buttons; previously its 380px height covered them.
+  $script:wizardText.Size=New-Object System.Drawing.Size(820,110)
+  $script:wizardText.Location=New-Object System.Drawing.Point($textX,270)
+  $script:wizardMain.Location=New-Object System.Drawing.Point($buttonX,415)
+  $script:wizardNext.Location=New-Object System.Drawing.Point($buttonX,480)
  }
+ # Labels must never cover clickable controls, including after window resize.
+ $script:wizardMain.BringToFront()
+ $script:wizardNext.BringToFront()
+ $script:wizardSkip.BringToFront()
 }
 $script:wizard.Add_Resize({Layout-Wizard})
 

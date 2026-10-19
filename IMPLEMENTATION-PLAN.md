@@ -24,7 +24,7 @@ This is the agreed product behavior, **not** a claim that all functionality alre
 
 ## Engineering delivery order
 
-- **v0.5.6 (this ZIP):** Correct opening wizard flow, export guidance, ZIP discovery and fallback, roadmap documentation. Existing read-only Lidarr UI is retained.
+- **v0.5.7 (this ZIP):** Correct opening wizard flow, export guidance, ZIP discovery and fallback, roadmap documentation. Existing read-only Lidarr UI is retained.
 - **Next:** Replace the current non-wizard workspace with unified analyze and Lidarr setup views; implement real counts and clickable read-only result tables; persist UI state without API keys.
 - **Then:** Verified MusicBrainz identity and track/release matching with auditable evidence and alternative candidates; artwork caching; allowed audio preview providers.
 - **Then:** Explicitly approved, resumable artist import and release-search queues; independent progress, transient-only retries, download/file verification, manual-add report.
