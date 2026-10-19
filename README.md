@@ -21,7 +21,7 @@ The process-level execution-policy bypass does **not** change your persistent Wi
 5. Optionally connect your own Lidarr instance for **read-only track review**. Album searches require two explicit approvals. Lidarr may download complete albums rather than individual songs.
 6. Unmatched songs with known source video IDs are exported as reviewable YouTube Music links, not automatically downloaded.
 
-## Supported export data (v0.4.0)
+## Supported export data (v0.4.1)
 
 - `music (library and uploads)/music library songs.csv`: **Song Title**, **Album Title**, **Artist Name 1..N**, **Video ID**. Multiple artists are retained as a collaboration credit; these names may need individual identity resolution before Lidarr matching.
 - `music uploads metadata.csv`: artist, song, album metadata; doesn't prove audio was downloaded.
@@ -30,9 +30,22 @@ The process-level execution-policy bypass does **not** change your persistent Wi
 
 The main `music library songs.csv` in the tested Takeout source inventory contained **2,505 records** (not 25). This version fixes their field recognition but hasn't yet been end-to-end verified on that original ZIP. A selected archive may not contain everything in a user's account, and Takeout ZIP parts can be split.
 
+## Optional artist import into Lidarr (v0.4.1)
+
+After the Takeout inventory completes, choose **option 6** in the PowerShell menu. The importer:
+
+1. Reads existing Lidarr artists, IDs, and aliases before adding anything.
+2. Shows installed-name coverage and asks you to select your own Lidarr root folder, quality profile and metadata profile.
+3. Requires the exact typed approval `IMPORT N ARTISTS`, where N is the count of unique artist credits.
+4. Adds only a **single exact normalized-name MusicBrainz candidate** absent from Lidarr. This is a *name-only* match and **not recording-level verification**; review before granting bulk permission. Multiple identities, collaborations, API failures, and missing results go to exceptions.
+5. Opens `lidarr-import-progress.html` as a browser progress meter. The PowerShell process performs the work; the static browser page cannot invoke local scripts.
+6. Writes `lidarr-artist-import-results.csv` after each artist. Rerunning against the **same report folder** can reuse those rows; new archive runs create fresh report folders and always check Lidarr again. No album searches or downloads are requested.
+
+Be conservative with the bulk option: an exact artist name can still refer to the wrong person. The project does not yet automate recording-level corroboration, so do not assume every imported artist is proven to match a Takeout track. **Nothing is added without your explicit confirmation.**
+
 ## Reports and safety
 
-Generated files include `dashboard.html`, `tracks.csv`, `artists.csv`, `source-files.csv`, `optional-youtube-queue.csv`, and optional Lidarr review CSVs. The API key is not written to reports. **No Lidarr imports, downloads, file moves, or searches are performed during inventory.** Explicitly approved Lidarr album searches are an optional later step.
+Generated files include `dashboard.html`, `tracks.csv`, `artists.csv`, `source-files.csv`, `optional-youtube-queue.csv`, and optional Lidarr review CSVs. The API key is not written to reports. **No Lidarr imports, downloads, file moves, or searches are performed during inventory.** Artist imports and album searches are separate opt-in actions. Explicitly approved Lidarr album searches are an optional later step.
 
 ## License
 
