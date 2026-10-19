@@ -10,10 +10,52 @@ $ErrorActionPreference='Stop'
 function Normalize-Artist([string]$s) { if ([string]::IsNullOrWhiteSpace($s)) {return ''}; return [regex]::Replace($s.Trim().ToLowerInvariant(),'[^\p{L}\p{N}]','') }
 function Get-LidarrKey {
  if($LidarrApiKey){return $LidarrApiKey}
- $secure=Read-Host 'Lidarr API key (input hidden; never saved to reports)' -AsSecureString
- $ptr=[Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
- try{return [Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr)}finally{[Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr)}
+ # Windows PowerShell's Read-Host -AsSecureString can receive only part of a
+ # pasted value in some console hosts. A password dialog supports full Ctrl+V.
+ try {
+  Add-Type -AssemblyName System.Windows.Forms -ErrorAction Stop
+  Add-Type -AssemblyName System.Drawing -ErrorAction Stop
+  $form=New-Object System.Windows.Forms.Form
+  $form.Text='Connect to Lidarr'
+  $form.Size=New-Object System.Drawing.Size(510,190)
+  $form.StartPosition='CenterScreen'
+  $form.TopMost=$true
+  $form.FormBorderStyle='FixedDialog'
+  $form.MaximizeBox=$false
+  $form.MinimizeBox=$false
+  $label=New-Object System.Windows.Forms.Label
+  $label.Text='Paste your Lidarr API key (Ctrl+V). It will not be saved.'
+  $label.AutoSize=$true
+  $label.Location=New-Object System.Drawing.Point(18,18)
+  $form.Controls.Add($label)
+  $input=New-Object System.Windows.Forms.TextBox
+  $input.Location=New-Object System.Drawing.Point(18,48)
+  $input.Width=450
+  $input.UseSystemPasswordChar=$true
+  $form.Controls.Add($input)
+  $ok=New-Object System.Windows.Forms.Button
+  $ok.Text='Connect'
+  $ok.DialogResult=[System.Windows.Forms.DialogResult]::OK
+  $ok.Location=New-Object System.Drawing.Point(300,92)
+  $form.Controls.Add($ok)
+  $cancel=New-Object System.Windows.Forms.Button
+  $cancel.Text='Cancel'
+  $cancel.DialogResult=[System.Windows.Forms.DialogResult]::Cancel
+  $cancel.Location=New-Object System.Drawing.Point(393,92)
+  $form.Controls.Add($cancel)
+  $form.AcceptButton=$ok
+  $form.CancelButton=$cancel
+  $form.Add_Shown({$input.Focus()})
+  $result=$form.ShowDialog()
+  $value=if($result -eq [System.Windows.Forms.DialogResult]::OK){$input.Text.Trim()}else{''}
+  $form.Dispose()
+  return $value
+ } catch {
+  Write-Warning 'Password dialog unavailable. Console input below will be visible; do not share screenshots of your key.'
+  return (Read-Host 'Lidarr API key').Trim()
+ }
 }
+
 function Save-Progress([string]$phase,[int]$done,[int]$total,[int]$added,[int]$exists,[int]$review,[int]$errors){
  $pct=if($total -gt 0){[math]::Round(100.0*$done/$total,1)}else{100}
  $safe=[System.Net.WebUtility]::HtmlEncode($phase)

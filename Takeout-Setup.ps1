@@ -122,8 +122,9 @@ function Resolve-TakeoutInput {
                 continue
             }
             Write-Host "`nSelected: $found"
-            $answer = (Read-Host 'Use this archive? [Y/N]').Trim()
-            if ($answer -ine 'Y') { continue }
+            # Default to Yes when the user presses Enter; permit explicit Y / N.
+            $answer = (Read-Host 'Use this archive? [Enter=Y, Y/N]').Trim()
+            if ($answer -and $answer -ine 'Y') { continue }
             # Only the selected path is remembered. No credentials or Takeout content saved here.
             @{ Path=$found; SavedAt=(Get-Date).ToString('o') } | ConvertTo-Json |
                 Set-Content -LiteralPath $statePath -Encoding UTF8
