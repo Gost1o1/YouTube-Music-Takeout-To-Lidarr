@@ -13,7 +13,7 @@ function Get-LidarrConnection {
      $resp=$_.Exception.Response
      if($resp -and [int]$resp.StatusCode -ge 200 -and [int]$resp.StatusCode -lt 500){$Url=$default}
    }
-   if($Url){Write-Host "Lidarr appears reachable at $Url"; try {Start-Process $Url | Out-Null}catch {}}
+   if($Url){Write-Host "Lidarr appears reachable at $Url (browser not opened)."}
    else {$Url=(Read-Host 'Lidarr URL (e.g. http://localhost:8686; Enter to cancel)').Trim()}
  }
  if(-not $Url){Write-Host 'Lidarr connection cancelled.';return $null}

@@ -214,7 +214,7 @@ try {
     if ($scanned -eq 0) { Write-Warning 'No supported music CSVs were found. Some Google Takeout exports require additional format support (HTML or JSON). Inspect the archive before concluding it contains no music.' }
     if (-not $NoPrompt) {
         do {
-            Write-Host "`nOPTIONS: [1] Open dashboard  [2] Open report folder  [3] Open Google Takeout  [4] Finish  [5] Review and optionally request Lidarr album searches  [6] Preview/import missing Lidarr artists"
+            Write-Host "`nOPTIONS: [1] Open dashboard  [2] Open report folder  [3] Open Google Takeout  [4] Finish  [5] Review and optionally request Lidarr album searches  [6] Preview/import missing Lidarr artists  [7] Download matched albums (review first)"
             $choice = Read-Host 'Choose'
             switch ($choice) {
                 '1' { Start-Process -FilePath $reportPath }
@@ -249,7 +249,21 @@ try {
                         if($_.Exception.Message -match '(401|403|Unauthorized|Forbidden|Invalid.*key)'){$LidarrApiKey=''}
                     }
                 }
-                default { Write-Host 'Choose 1 through 6.' }
+                '7' {
+                    try {
+                        if (-not $LidarrUrl -or -not $LidarrApiKey) {
+                            . (Join-Path $PSScriptRoot 'Lidarr-Connection.ps1')
+                            $lidarrSession=Get-LidarrConnection -Url $LidarrUrl -ApiKey $LidarrApiKey
+                            if(-not $lidarrSession){continue}
+                            $LidarrUrl=$lidarrSession.Url; $LidarrApiKey=$lidarrSession.ApiKey
+                        }
+                        & (Join-Path $PSScriptRoot 'Lidarr-Download.ps1') -TracksCsv $tracksPath -ReportFolder $runFolder -LidarrUrl $LidarrUrl -LidarrApiKey $LidarrApiKey
+                    } catch {
+                        Write-Warning ('Download review failed: ' + $_.Exception.Message)
+                        if($_.Exception.Message -match '(401|403|Unauthorized|Forbidden|Invalid.*key)'){$LidarrApiKey=''}
+                    }
+                }
+                default { Write-Host 'Choose 1 through 7.' }
             }
         } until ($choice -eq '4')
     }

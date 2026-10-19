@@ -52,29 +52,18 @@ Generated files include `dashboard.html`, `tracks.csv`, `artists.csv`, `source-f
 See [LICENSE](LICENSE) for the **draft personal and noncommercial use terms**. This is source-available, not an OSI-approved open-source license. A legal review is recommended before relying on custom terms.
 
 
-## v0.4.5 usability fixes
+## Optional downloads and matching limits (v0.4.6)
 
-- **Enter** (or `Y`) approves the selected Takeout ZIP; `N` goes back.
-- The initial archive-audit waiting page is centered.
-- The read-only dashboard shows a concise library status instead of instructions for buttons it cannot actually run.
-- Lidarr API key entry uses a Windows password input dialog that supports pasting the entire key; nothing is saved to reports.
-- All artist imports remain optional and require approval.
+After import, choose **option 7 — Download matched albums (review first)** in the *same PowerShell window*. The command reuses the Lidarr connection for this session and does not open Lidarr in the browser automatically. It scans the original Takeout tracks against installed artist names and Lidarr catalog track titles, writes `lidarr-track-review.csv` and `unmatched-youtube-review.csv`, deduplicates the eligible album IDs, and offers **two separate explicit confirmations** before requesting Lidarr `AlbumSearch` commands. Lidarr's configured indexers/download clients determine whether anything is acquired. One search may acquire an entire album, not just the selected track. **A submitted search is not a completed download.** No YouTube Music content is downloaded directly.
 
-## Lidarr connection (v0.4.5)
+Crucially, after the first public import test, only **two artist credits were newly imported**, and over a thousand credits still needed identity review. That means the complete Takeout catalog is *not* yet eligible for reliable Lidarr downloads. Many saved tracks may not exist in Lidarr's metadata catalog. A report containing zero eligible albums is a truthful outcome, not permission to bulk search unrelated albums. Use the unmatched queue for manual review and future matching improvements.
 
-Choose option 5 or 6. The tool first checks `http://127.0.0.1:8686`, opening the URL when reachable. Otherwise it asks for your Lidarr URL. Find the API key in **Settings > General > API Key**. A Windows dialog provides a **Paste** button and an optional **Show key** checkbox. The API key is not saved in reports. Cancelling returns without changing Lidarr. Album searches and artist imports remain separate, opt-in operations.
+This release **does not automatically download every saved song**, nor does it add albums to Lidarr's metadata. It is a safe starting point for a future recording-verified acquisition pipeline.
 
-## v0.4.5 improvements
+## v0.4.6 interface changes
 
-- The saved-songs dashboard gives **Artist** and **Song** wide columns and keeps **Match status** and **Source video** readable. Narrow windows scroll horizontally instead of crushing column titles.
-- The Lidarr connection (URL and API key) is cached **in the current PowerShell process only**. Options 5 and 6 reuse it until the launcher exits. It is not written to disk or reports.
-- API-key help specifies the **left sidebar > Settings > General > API Key** path.
-- Artist import approval now accepts exactly `IMPORT` regardless of case, following a clear warning. This still authorizes name-only matches, which can be wrong; validate identities before using the import option.
+- Only checks if the default Lidarr URL is reachable; does not automatically open the browser. Users can follow the on-screen steps: **Lidarr left sidebar → Settings → General → API Key**.
+- Centers both the in-progress and finished Lidarr artist import page.
+- Adds the optional **menu item 7** for exact-catalog Lidarr album search review and unmatched YouTube Music link export.
+- Caches the API key only in the running PowerShell process. It is not written to reports.
 
-## v0.4.5: Existing profile reconciliation
-
-- Before adding artists, compare the **quality profile and metadata profile** of uniquely identified existing Lidarr artists against the user's selected profiles.
-- Export `lidarr-profile-differences.csv` for review. Leave existing profiles unchanged by default.
-- Type **U** at a separate prompt to opt in to changing these existing profiles. This does **not** modify the root folder or issue a download/search command. Every update is logged in `lidarr-profile-updates.csv`.
-- Press **Enter** or type **Y** to approve the separate new-artist pass after reviewing the identity warning; **N** cancels.
-- Only a unique installed name/alias is eligible for profile reconciliation; ambiguous matching names are never modified. This is still *name-level* evidence and users should review the mismatch CSV before approving updates.
