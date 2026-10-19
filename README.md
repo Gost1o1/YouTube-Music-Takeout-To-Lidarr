@@ -21,7 +21,7 @@ The process-level execution-policy bypass does **not** change your persistent Wi
 5. Optionally connect your own Lidarr instance for **read-only track review**. Album searches require two explicit approvals. Lidarr may download complete albums rather than individual songs.
 6. Unmatched songs with known source video IDs are exported as reviewable YouTube Music links, not automatically downloaded.
 
-## Supported export data (v0.4.2)
+## Supported export data (v0.4.3)
 
 - `music (library and uploads)/music library songs.csv`: **Song Title**, **Album Title**, **Artist Name 1..N**, **Video ID**. Multiple artists are retained as a collaboration credit; these names may need individual identity resolution before Lidarr matching.
 - `music uploads metadata.csv`: artist, song, album metadata; doesn't prove audio was downloaded.
@@ -30,7 +30,7 @@ The process-level execution-policy bypass does **not** change your persistent Wi
 
 The main `music library songs.csv` in the tested Takeout source inventory contained **2,505 records** (not 25). This version fixes their field recognition but hasn't yet been end-to-end verified on that original ZIP. A selected archive may not contain everything in a user's account, and Takeout ZIP parts can be split.
 
-## Optional artist import into Lidarr (v0.4.2)
+## Optional artist import into Lidarr (v0.4.3)
 
 After the Takeout inventory completes, choose **option 6** in the PowerShell menu. The importer:
 
@@ -52,10 +52,14 @@ Generated files include `dashboard.html`, `tracks.csv`, `artists.csv`, `source-f
 See [LICENSE](LICENSE) for the **draft personal and noncommercial use terms**. This is source-available, not an OSI-approved open-source license. A legal review is recommended before relying on custom terms.
 
 
-## v0.4.2 usability fixes
+## v0.4.3 usability fixes
 
 - **Enter** (or `Y`) approves the selected Takeout ZIP; `N` goes back.
 - The initial archive-audit waiting page is centered.
 - The read-only dashboard shows a concise library status instead of instructions for buttons it cannot actually run.
 - Lidarr API key entry uses a Windows password input dialog that supports pasting the entire key; nothing is saved to reports.
 - All artist imports remain optional and require approval.
+
+## Lidarr connection (v0.4.3)
+
+Choose option 5 or 6. The tool first checks `http://127.0.0.1:8686`, opening the URL when reachable. Otherwise it asks for your Lidarr URL. Find the API key in **Settings > General > API Key**. A Windows dialog provides a **Paste** button and an optional **Show key** checkbox. The API key is not saved in reports. Cancelling returns without changing Lidarr. Album searches and artist imports remain separate, opt-in operations.

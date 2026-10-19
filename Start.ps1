@@ -183,8 +183,7 @@ try {
     [void]$sb.AppendLine('<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Music Takeout Toolkit</title><style>body{font:16px system-ui,Segoe UI,sans-serif;max-width:1100px;margin:36px auto;padding:0 16px;color:#242936}a{color:#135ebc}.stats{display:flex;gap:12px;flex-wrap:wrap}.stat,.panel{border:1px solid #ddd;border-radius:12px;padding:16px;margin:12px 0}.stat b{display:block;font-size:28px}small{color:#616b78}table{border-collapse:collapse;width:100%;font-size:13px}th,td{border-bottom:1px solid #e4e6e8;padding:8px;text-align:left;word-break:break-word}input{padding:10px;max-width:100%;width:450px}.scroll{overflow:auto;max-height:520px}</style></head><body>')
     [void]$sb.AppendLine('<h1>YouTube Music Takeout to Lidarr</h1><p><small>Local audit. No downloads, no Lidarr changes, no file moves.</small></p>')
     [void]$sb.AppendLine('<div class="stats"><div class="stat"><b>'+$songs.Count+'</b>Music library track records</div><div class="stat"><b>'+$artistSet.Count+'</b>Artist credits</div><div class="stat"><b>'+$withVideo+'</b>Valid YouTube IDs</div><div class="stat"><b>'+$scanned+'</b>Recognized CSV files</div><div class="stat"><b>'+$uploadedAudioCount+'</b>Exported audio files (not processed)</div></div>')
-    [void]$sb.AppendLine('<div class="panel"><h2>Library status</h2><p><strong>Inventory only.</strong> This dashboard does not start Lidarr operations or downloads. Artist names alone do not confirm specific recordings.</p><p>Lidarr: '+(Html $lidarrState)+'; artist count: '+$(if($lidarrCount -ge 0){$lidarrCount}else{'not checked'})+'; matched track rows by name: '+$countKnown+'; missing track rows by name: '+$countMissing+'.</p></div>')
-    [void]$sb.AppendLine('<div class="panel"><h2>Source coverage and limitations</h2><p>Selected archive: '+(Html ([IO.Path]::GetFileName($source)))+'. Files in archive: '+$allFiles.Count+'. CSVs accepted as potential music data: '+$scanned+'. HTML/JSON files requiring additional parsers: '+$unknownFileCount+'. Uploaded audio files detected: '+$uploadedAudioCount+'. Generic-title CSVs held out: '+$unconfirmed+'. See <strong>source-files.csv</strong> for every file and its classification. These numbers describe only this selected export, not every item in a user account or prior Lidarr state.</p></div>')
+    if ($lidarrCount -ge 0) { [void]$sb.AppendLine('<div class="panel"><h2>Lidarr comparison</h2><p>Connected: '+(Html $lidarrState)+'; installed artists: '+$lidarrCount+'; name-based matches: '+$countKnown+'; missing names: '+$countMissing+'. These are not verified recordings.</p></div>') }
     if ($weakMetadata) { [void]$sb.AppendLine('<div class="panel"><h2>Incomplete source metadata</h2><p>These rows contain titles but no recognizable artist credits or YouTube video IDs. The inventory is <strong>not a complete music-library match</strong>. Inspect the selected Takeout archive and its file types before requesting Lidarr searches.</p></div>') }
     [void]$sb.AppendLine('<div class="panel"><h2>Saved songs</h2><input id="find" type="search" placeholder="Search artist or song" oninput="filterRows()"><div class="scroll"><table id="tracks"><thead><tr><th>Artist</th><th>Song</th><th>Match status</th><th>Source video</th></tr></thead><tbody>')
     foreach($s in $songs) {
@@ -205,10 +204,12 @@ try {
     Write-Host "Archive files audited: $($allFiles.Count); unsupported HTML/JSON: $unknownFileCount"
     Write-Host "Full file inventory: $sourcePath"
     Write-Host "Selected source archive: $source"
+    if ($lidarrCount -ge 0) { [void]$sb.AppendLine('<div class="panel"><h2>Lidarr comparison</h2><p>Connected: '+(Html $lidarrState)+'; installed artists: '+$lidarrCount+'; name-based matches: '+$countKnown+'; missing names: '+$countMissing+'. These are not verified recordings.</p></div>') }
     if ($weakMetadata) { Write-Host "ACTION: Open report folder (menu option 2) and inspect source-files.csv. This is NOT a complete music import." -ForegroundColor Yellow }
     Write-Host "Lidarr: $lidarrState"
     Write-Host "Reports saved in: $runFolder"
     Write-Host 'No searches, downloads or imports occurred during inventory.'
+    if ($lidarrCount -ge 0) { [void]$sb.AppendLine('<div class="panel"><h2>Lidarr comparison</h2><p>Connected: '+(Html $lidarrState)+'; installed artists: '+$lidarrCount+'; name-based matches: '+$countKnown+'; missing names: '+$countMissing+'. These are not verified recordings.</p></div>') }
     if ($weakMetadata) { Write-Warning 'Partial metadata: zero artists and zero video IDs. Do not use these rows as confirmed music matches.' }
     if ($scanned -eq 0) { Write-Warning 'No supported music CSVs were found. Some Google Takeout exports require additional format support (HTML or JSON). Inspect the archive before concluding it contains no music.' }
     if (-not $NoPrompt) {
@@ -220,8 +221,8 @@ try {
                 '2' { Start-Process -FilePath $runFolder }
                 '3' { Start-Process 'https://takeout.google.com/settings/takeout' }
                 '4' { break }
-                '5' { & (Join-Path $PSScriptRoot 'Lidarr-Review.ps1') -TracksCsv $tracksPath -ReportFolder $runFolder -LidarrUrl $LidarrUrl -LidarrApiKey $LidarrApiKey }
-                '6' { & (Join-Path $PSScriptRoot 'Lidarr-Import.ps1') -ArtistsCsv $artistPath -ReportFolder $runFolder -LidarrUrl $LidarrUrl -LidarrApiKey $LidarrApiKey }
+                '5' { try { & (Join-Path $PSScriptRoot 'Lidarr-Review.ps1') -TracksCsv $tracksPath -ReportFolder $runFolder -LidarrUrl $LidarrUrl -LidarrApiKey $LidarrApiKey } catch { Write-Warning ('Lidarr review failed: ' + $_.Exception.Message) } }
+                '6' { try { & (Join-Path $PSScriptRoot 'Lidarr-Import.ps1') -ArtistsCsv $artistPath -ReportFolder $runFolder -LidarrUrl $LidarrUrl -LidarrApiKey $LidarrApiKey } catch { Write-Warning ('Lidarr import failed: ' + $_.Exception.Message) } }
                 default { Write-Host 'Choose 1 through 6.' }
             }
         } until ($choice -eq '4')

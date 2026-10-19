@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 [CmdletBinding()]
 param(
   [Parameter(Mandatory=$true)][string]$TracksCsv,
@@ -8,16 +8,12 @@ param(
 )
 $ErrorActionPreference='Stop'
 function Norm([string]$s) { if(-not $s){return ''}; return [regex]::Replace($s.ToLowerInvariant().Trim(),'[^\p{L}\p{N}]','') }
-function Read-Key {
-  if ($LidarrApiKey) {return $LidarrApiKey}
-  $secure=Read-Host 'Lidarr API key (not saved in reports)' -AsSecureString
-  $b=[Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
-  try {return [Runtime.InteropServices.Marshal]::PtrToStringBSTR($b)} finally {[Runtime.InteropServices.Marshal]::ZeroFreeBSTR($b)}
-}
 $tracks=@(Import-Csv -LiteralPath $TracksCsv)
-if (-not $LidarrUrl) { $LidarrUrl=Read-Host 'Lidarr URL (for example http://localhost:8686)' }
-$key=Read-Key
-if(-not $LidarrUrl -or -not $key){throw 'Lidarr URL and API key required.'}
+. (Join-Path $PSScriptRoot 'Lidarr-Connection.ps1')
+$connection=Get-LidarrConnection -Url $LidarrUrl -ApiKey $LidarrApiKey
+if(-not $connection){return}
+$LidarrUrl=$connection.Url
+$key=$connection.ApiKey
 $base=$LidarrUrl.TrimEnd('/')
 if($base -notmatch '/api/v1$'){$base+='/api/v1'}
 $h=@{'X-Api-Key'=$key}
