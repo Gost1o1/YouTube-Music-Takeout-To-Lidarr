@@ -16,19 +16,7 @@ function Normalize([string]$name) {
     return [regex]::Replace($name.Trim().ToLowerInvariant(), '[^\p{L}\p{N}]', '')
 }
 function Html([string]$v) { return [System.Net.WebUtility]::HtmlEncode($v) }
-function Pick-Folder($hint) {
-    if ($hint -and (Test-Path -LiteralPath $hint)) {return (Resolve-Path -LiteralPath $hint).Path}
-    if ($NoPrompt) {throw 'Supply -InputPath when using -NoPrompt.'}
-    Write-Host '\nFind your Google Takeout ZIP (or extracted Takeout folder) under Downloads.'
-    Write-Host 'Download a new export: https://takeout.google.com/settings/takeout'
-    while ($true) {
-        $v = Read-Host 'Paste the full ZIP or folder path (Enter to cancel)'
-        $v = $v.Trim('"').Trim()
-        if (-not $v) {throw 'Cancelled by user.'}
-        if (Test-Path -LiteralPath $v) {return (Resolve-Path -LiteralPath $v).Path}
-        Write-Warning 'That path does not exist. Try again.'
-    }
-}
+. (Join-Path $PSScriptRoot 'Takeout-Setup.ps1')
 $homeFolder = [Environment]::GetFolderPath('MyDocuments')
 if (-not $homeFolder) { $homeFolder = Join-Path $env:USERPROFILE 'Documents' }
 if (-not $OutputRoot) { $OutputRoot = Join-Path $homeFolder 'MusicTakeoutToolkit' }
@@ -38,7 +26,8 @@ New-Item -ItemType Directory -Force -Path $runFolder | Out-Null
 $tempFolder = Join-Path ([IO.Path]::GetTempPath()) ('MusicTakeoutToolkit-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Force -Path $tempFolder | Out-Null
 try {
-    $source = Pick-Folder $InputPath
+    $source = Resolve-TakeoutInput -ProvidedPath $InputPath -OutputRoot $OutputRoot -NoPrompt:$NoPrompt
+    if (-not $source) { Write-Host 'Takeout setup paused. Relaunch whenever your export is ready.'; return }
     Write-Host "Source: $source"
     if ((Test-Path -LiteralPath $source -PathType Leaf) -and $source -match '\.zip$') {
         Write-Host 'Extracting ZIP to temporary workspace...'
@@ -144,6 +133,7 @@ try {
     Write-Host "Lidarr: $lidarrState"
     Write-Host "Reports saved in: $runFolder"
     Write-Host 'No searches, downloads or imports occurred during inventory.'
+    if ($scanned -eq 0) { Write-Warning 'No supported music CSVs were found. Some Google Takeout exports require additional format support (HTML or JSON). Inspect the archive before concluding it contains no music.' }
     if (-not $NoPrompt) {
         do {
             Write-Host "`nOPTIONS: [1] Open dashboard  [2] Open report folder  [3] Open Google Takeout  [4] Finish  [5] Review and optionally request Lidarr album searches"

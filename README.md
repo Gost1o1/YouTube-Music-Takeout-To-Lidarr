@@ -31,6 +31,20 @@ $u='https://github.com/Gost1o1/YouTube-Music-Takeout-To-Lidarr/archive/refs/head
 
 **Security:** One-line commands that download and run Internet code require trust in the repository. Read the script first, avoid unknown forks, and use a tagged release URL for production instead of an automatically changing `main` branch.
 
+## v0.3: Guided Google Takeout export and archive discovery
+
+Launching `Start.ps1` **without** `-InputPath` opens an interactive setup menu:
+
+1. Open the official [Google Takeout export page](https://takeout.google.com/settings/takeout) and follow on-screen instructions to select **YouTube and YouTube Music** and request an export.
+2. Wait for Google's export-ready notification and download the archive using your browser.
+3. Select **Find in Downloads**, which lists up to 12 recent likely Takeout ZIPs or extracted folders. Choose and confirm an entry. If your browser saved it elsewhere, paste the ZIP or folder path instead.
+4. The selected path is saved in `Documents/MusicTakeoutToolkit/last-takeout-path.json` so you can resume later. The original archive is **never deleted**.
+5. Continue to the existing inventory, dashboard, optional Lidarr album-search review, and unmatched YouTube Music link report.
+
+The helper cannot sign in to Google, request the export through an API, download an archive from your Google account, or reliably determine a browser's custom download destination. It only opens the official page and detects files you have already downloaded. **Do not upload your Google Takeout archive, reports, or API keys to GitHub.**
+
+Noninteractive runs remain supported with `-InputPath` and `-NoPrompt`. Neither the Takeout process nor Lidarr album searches start automatically.
+
 ## Supported input
 
 - A ZIP or extracted folder containing music/video CSV exports.
