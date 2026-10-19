@@ -67,7 +67,7 @@ function Check-Process {
     $names=New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
     $links=0
     foreach($t in $all){if($t.Artist){[void]$names.Add($t.Artist.Trim())};if($t.YouTubeUrl -match '^https?://'){$links++}}
-    $script:data.summary=@{songs=$all.Count;artists=$names.Count;artistCreditsLabel='Unique displayed artist strings';links=$links;uploadedAudio='See full Takeout report';warning=if($err){'Analysis completed with nonfatal warnings.'}else{''}}
+    $script:data.summary=@{songs=$all.Count;artists=$names.Count;artistCreditsLabel='Unique displayed artist strings';links=$links;uploadedAudio=0;warning=if($err){'Analysis completed with nonfatal warnings.'}else{''}}
     if($exit -ne 0){Log-Server ('Parser returned exit '+$exit+' but valid tracks.csv was recovered. '+$err)}
     Log-Server ('Analysis succeeded: '+$all.Count+' songs; '+$script:data.report)
   } catch {
@@ -176,7 +176,7 @@ $edgePaths=@("$env:ProgramFiles (x86)\Microsoft\Edge\Application\msedge.exe","$e
 $edge=$edgePaths|Where-Object{Test-Path -LiteralPath $_}|Select-Object -First 1
 if($edge){Start-Process -FilePath $edge -ArgumentList @('--app='+$url,'--window-size=1280,900') | Out-Null}
 else{Start-Process $url | Out-Null}
-Write-Host ('YouTube Music to Lidarr v0.6.3 UI running at '+$url)
+Write-Host ('YouTube Music to Lidarr v0.6.4 UI running at '+$url)
 Write-Host 'Keep this PowerShell process open while using the app. Press Ctrl+C to stop.'
 try {
   while($listener.IsListening){

@@ -1,4 +1,4 @@
-# YouTube Music Takeout to Lidarr v0.6.3
+# YouTube Music Takeout to Lidarr v0.6.4
 
 ## Launch (Windows)
 

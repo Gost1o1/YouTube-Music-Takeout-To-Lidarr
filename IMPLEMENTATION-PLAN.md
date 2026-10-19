@@ -1,1 +1,1 @@
-v0.6.3: restore scan result parsing using dedicated run output; header/footer cleanup; double-click launcher; preserve earlier 10-stage UX. Actual Lidarr writes, preview audio, artwork, and retry integration remain future work.
+v0.6.4: restore scan result parsing using dedicated run output; header/footer cleanup; double-click launcher; preserve earlier 10-stage UX. Actual Lidarr writes, preview audio, artwork, and retry integration remain future work.
