@@ -37,7 +37,7 @@ function New-Button($text,$x,$y,$w,$handler){
  $b.Add_Click($handler);$script:form.Controls.Add($b);return $b
 }
 $script:form=New-Object System.Windows.Forms.Form
-$script:form.Text='YouTube Music Takeout to Lidarr  |  v0.5.1'
+$script:form.Text='YouTube Music Takeout to Lidarr  |  v0.5.3'
 $script:form.Size=New-Object System.Drawing.Size(1100,770)
 $script:form.StartPosition='CenterScreen';$script:form.MinimumSize=New-Object System.Drawing.Size(850,650)
 $script:form.Font=New-Object System.Drawing.Font('Segoe UI',10)
@@ -150,47 +150,88 @@ $script:wizard=New-Object System.Windows.Forms.Panel
 $script:wizard.Dock='Fill';$script:wizard.BackColor=[System.Drawing.Color]::White
 $script:form.Controls.Add($script:wizard);$script:wizard.BringToFront()
 $script:wizardStage=0
+
+$script:wizardProgress=New-Object System.Windows.Forms.ProgressBar
+$script:wizardProgress.Style='Continuous'
+$script:wizardProgress.Minimum=0;$script:wizardProgress.Maximum=100;$script:wizardProgress.Value=33
+$script:wizardProgress.Size=New-Object System.Drawing.Size(260,8)
+$script:wizardProgress.Location=New-Object System.Drawing.Point(0,46)
+$script:wizard.Controls.Add($script:wizardProgress)
+
 $script:wizardHeading=New-Object System.Windows.Forms.Label
-$script:wizardHeading.Font=New-Object System.Drawing.Font('Segoe UI',19,[System.Drawing.FontStyle]::Bold)
-$script:wizardHeading.Location=New-Object System.Drawing.Point(75,65);$script:wizardHeading.Size=New-Object System.Drawing.Size(880,48)
+$script:wizardHeading.Font=New-Object System.Drawing.Font('Segoe UI',21,[System.Drawing.FontStyle]::Bold)
+$script:wizardHeading.Size=New-Object System.Drawing.Size(880,56)
+$script:wizardHeading.TextAlign='MiddleCenter'
 $script:wizard.Controls.Add($script:wizardHeading)
+
 $script:wizardText=New-Object System.Windows.Forms.Label
 $script:wizardText.Font=New-Object System.Drawing.Font('Segoe UI',11)
-$script:wizardText.Location=New-Object System.Drawing.Point(77,126);$script:wizardText.Size=New-Object System.Drawing.Size(845,95)
+$script:wizardText.Size=New-Object System.Drawing.Size(820,96)
+$script:wizardText.TextAlign='TopCenter'
 $script:wizard.Controls.Add($script:wizardText)
-$script:wizardIndicator=New-Object System.Windows.Forms.Label
-$script:wizardIndicator.ForeColor=[System.Drawing.Color]::SlateGray
-$script:wizardIndicator.Location=New-Object System.Drawing.Point(77,25);$script:wizardIndicator.Size=New-Object System.Drawing.Size(520,28)
-$script:wizard.Controls.Add($script:wizardIndicator)
+
 $script:wizardMain=New-Object System.Windows.Forms.Button
-$script:wizardMain.Location=New-Object System.Drawing.Point(77,235);$script:wizardMain.Size=New-Object System.Drawing.Size(340,44)
+$script:wizardMain.Size=New-Object System.Drawing.Size(360,46)
 $script:wizard.Controls.Add($script:wizardMain)
+
 $script:wizardNext=New-Object System.Windows.Forms.Button
-$script:wizardNext.Location=New-Object System.Drawing.Point(77,299);$script:wizardNext.Size=New-Object System.Drawing.Size(340,44)
+$script:wizardNext.Size=New-Object System.Drawing.Size(360,46)
 $script:wizard.Controls.Add($script:wizardNext)
+
 $script:wizardSkip=New-Object System.Windows.Forms.Button
-$script:wizardSkip.Text='I already have a Takeout ZIP'
-$script:wizardSkip.Location=New-Object System.Drawing.Point(77,365);$script:wizardSkip.Size=New-Object System.Drawing.Size(340,42)
+$script:wizardSkip.Size=New-Object System.Drawing.Size(360,46)
 $script:wizard.Controls.Add($script:wizardSkip)
+
+function Layout-Wizard {
+ $panelWidth=$script:wizard.ClientSize.Width
+ $centerX=[int](($panelWidth-880)/2)
+ $textX=[int](($panelWidth-820)/2)
+ $buttonX=[int](($panelWidth-360)/2)
+ $progX=[int](($panelWidth-260)/2)
+ $script:wizardProgress.Location=New-Object System.Drawing.Point($progX,46)
+ $script:wizardHeading.Location=New-Object System.Drawing.Point($centerX,98)
+ $script:wizardText.Location=New-Object System.Drawing.Point($textX,172)
+ $script:wizardMain.Location=New-Object System.Drawing.Point($buttonX,306)
+ if($script:wizardNext.Visible){$script:wizardNext.Location=New-Object System.Drawing.Point($buttonX,370)}
+ if($script:wizardSkip.Visible){
+  $y=if($script:wizardNext.Visible){434}else{370}
+  $script:wizardSkip.Location=New-Object System.Drawing.Point($buttonX,$y)
+ }
+}
+$script:wizard.Add_Resize({Layout-Wizard})
+
 function Set-WizardStage([int]$stage){
  $script:wizardStage=$stage
- $script:wizardIndicator.Text=('GOOGLE TAKEOUT  /  STEP '+($stage+1)+' OF 3')
- if($stage -eq 0){
-  $script:wizardHeading.Text='Choose the Google account with your music'
-  $script:wizardText.Text='Google will show the available accounts in your browser. Select the account containing your YouTube Music library. The app never reads your password or browser cookies.'
-  $script:wizardMain.Text='Choose Google account'
-  $script:wizardNext.Text='Account selected - Continue'
- } elseif($stage -eq 1){
-  $script:wizardHeading.Text='Request your YouTube Music export'
-  $script:wizardText.Text='Google Takeout will open with YouTube and YouTube Music preselected. On Google''s page select: email download link, export once, ZIP, and 50 GB. Review the settings and click Create export there.'
-  $script:wizardMain.Text='Open Google Takeout'
-  $script:wizardNext.Text='Export requested - Continue'
- } else {
-  $script:wizardHeading.Text='Wait for Google to prepare your export'
-  $script:wizardText.Text='Google sends a notification when your export is ready. You can check Gmail for the notification, download the ZIP from Google Takeout, and then load it here. Gmail access is not granted to this app.'
-  $script:wizardMain.Text='Find the ready email in Gmail'
-  $script:wizardNext.Text='Find my downloaded ZIP'
+ switch($stage){
+  0 {
+   $script:wizardProgress.Value=33
+   $script:wizardHeading.Text='Where is your music stored?'
+   $script:wizardText.Text='Choose the Google account that contains your YouTube Music library, or continue with a Takeout ZIP you already downloaded.'
+   $script:wizardMain.Text='Choose Google Account'
+   $script:wizardNext.Visible=$false
+   $script:wizardSkip.Visible=$true
+   $script:wizardSkip.Text='Use Already Downloaded YouTube Music Data'
+  }
+  1 {
+   $script:wizardProgress.Value=66
+   $script:wizardHeading.Text='Request your YouTube Music export'
+   $script:wizardText.Text='Google Takeout will open with YouTube and YouTube Music preselected. On Google''s page keep these settings: send download link via email, export once, ZIP, and 50 GB. Then click Create export.'
+   $script:wizardMain.Text='Open Google Takeout'
+   $script:wizardNext.Visible=$true
+   $script:wizardNext.Text='Export Requested - Continue'
+   $script:wizardSkip.Visible=$false
+  }
+  2 {
+   $script:wizardProgress.Value=100
+   $script:wizardHeading.Text='Wait for Google to prepare your export'
+   $script:wizardText.Text='When Google emails that your export is ready, download the ZIP. Then continue here so the app can locate the newest Takeout file or let you choose it manually.'
+   $script:wizardMain.Text='Find the Ready Email in Gmail'
+   $script:wizardNext.Visible=$true
+   $script:wizardNext.Text='Find My Downloaded ZIP'
+   $script:wizardSkip.Visible=$false
+  }
  }
+ Layout-Wizard
 }
 $script:wizardMain.Add_Click({
  switch($script:wizardStage){
