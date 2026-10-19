@@ -23,10 +23,12 @@ The tool will ask for an extracted Google Takeout folder or `.zip` export and di
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Start.ps1 -InputPath "$HOME\Downloads\takeout.zip" -NoPrompt
 ```
 
-A published repo can provide a single pasteable PowerShell launch command. The command below points at this project’s `main` branch. Review its source before running:
+### One-command launch (Windows PowerShell 5.1)
+
+Copy and paste this **single** command in PowerShell (administrator rights are not needed). It downloads a temporary copy of this repository, launches a child PowerShell process with execution-policy bypass **for that process only**, and deletes only the temporary program copy afterward. Review the repository before running any internet-downloaded script:
 
 ```powershell
-$u='https://github.com/Gost1o1/YouTube-Music-Takeout-To-Lidarr/archive/refs/heads/main.zip';$d=Join-Path $env:TEMP ('takeout-'+[guid]::NewGuid().ToString('N'));try{New-Item -ItemType Directory -Path $d|Out-Null;Invoke-WebRequest $u -OutFile (Join-Path $d 'app.zip') -UseBasicParsing;Expand-Archive (Join-Path $d 'app.zip') (Join-Path $d 'app');& (Get-ChildItem (Join-Path $d 'app') -Filter Start.ps1 -Recurse | Select-Object -First 1).FullName}finally{Remove-Item $d -Recurse -Force -ErrorAction SilentlyContinue}
+$u='https://github.com/Gost1o1/YouTube-Music-Takeout-To-Lidarr/archive/refs/heads/main.zip'; $d=Join-Path $env:TEMP ('YTMusic-'+[guid]::NewGuid().ToString('N')); try { New-Item -ItemType Directory -Path $d -Force -ErrorAction Stop | Out-Null; Invoke-WebRequest -Uri $u -OutFile "$d\app.zip" -UseBasicParsing -ErrorAction Stop; Expand-Archive -LiteralPath "$d\app.zip" -DestinationPath "$d\app" -ErrorAction Stop; $s=Get-ChildItem "$d\app" -Filter Start.ps1 -Recurse | Select-Object -First 1; if (-not $s) { throw 'Start.ps1 not found' }; & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $s.FullName } finally { Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction SilentlyContinue }
 ```
 
 **Security:** One-line commands that download and run Internet code require trust in the repository. Read the script first, avoid unknown forks, and use a tagged release URL for production instead of an automatically changing `main` branch.
@@ -89,6 +91,13 @@ Upload or replace the files in [the repository](https://github.com/Gost1o1/YouTu
 ## License
 
 See `LICENSE` for the proposed **Personal and Noncommercial Use License**. Commercial use is not granted. This is **source-available**, not an OSI-approved open-source license. The custom terms are a draft and should be reviewed by a qualified lawyer before release. All author and third-party copyright rights remain with their respective holders.
+
+## v0.3.2 fixes
+
+- Adds `source-files.csv` listing **every file in the selected export**, its columns, whether it was parsed, and the number of candidate music rows.
+- Does not count generic nonmusic `Title` CSVs as songs without music-specific evidence.
+- The report now distinguishes the **selected archive** from a full Google Takeout library; starting a new run never resumes artist matching from an earlier user-specific import.
+- The GitHub one-command launcher now works under the default PowerShell script policy by using process-scoped bypass, without changing the system policy.
 
 ## v0.3.1 fixes
 
