@@ -31,7 +31,7 @@ $u='https://github.com/Gost1o1/YouTube-Music-Takeout-To-Lidarr/archive/refs/head
 
 **Security:** One-line commands that download and run Internet code require trust in the repository. Read the script first, avoid unknown forks, and use a tagged release URL for production instead of an automatically changing `main` branch.
 
-## v0.3: Guided Google Takeout export and archive discovery
+## v0.3.1: Guided Google Takeout export and archive discovery
 
 Launching `Start.ps1` **without** `-InputPath` opens an interactive setup menu:
 
@@ -89,3 +89,10 @@ Upload or replace the files in [the repository](https://github.com/Gost1o1/YouTu
 ## License
 
 See `LICENSE` for the proposed **Personal and Noncommercial Use License**. Commercial use is not granted. This is **source-available**, not an OSI-approved open-source license. The custom terms are a draft and should be reviewed by a qualified lawyer before release. All author and third-party copyright rights remain with their respective holders.
+
+## v0.3.1 fixes
+
+- After opening Google Takeout, pressing Enter **immediately scans Downloads** rather than returning to the main menu.
+- Decodes serialized JSON titles such as `{"text":"Song"}` from CSV cells.
+- Warns if imported titles have **zero artist credits and zero video IDs**. Such a report is incomplete, not a successful full-library match.
+- This does not yet support all original Takeout formats. If your export contains playlist JSON/HTML without matching CSV metadata, a representative **redacted file** is needed for further parser development.

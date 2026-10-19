@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 [CmdletBinding()]
 param([string]$InputPath='', [string]$OutputRoot='', [string]$LidarrUrl='', [string]$LidarrApiKey='', [switch]$NoPrompt)
 $ErrorActionPreference = 'Stop'
@@ -10,6 +10,32 @@ function Get-Prop($row, [string[]]$aliases) {
         }
     }
     return ''
+}
+function Decode-TakeoutCell([string]$value) {
+    if ([string]::IsNullOrWhiteSpace($value)) { return '' }
+    $value = $value.Trim()
+    if ($value -match '^\s*[\{\[]') {
+        try {
+            $obj = ConvertFrom-Json -InputObject $value -ErrorAction Stop
+            if ($obj -is [System.Array]) {
+                $bits = @($obj | ForEach-Object {
+                    if ($_ -is [string]) { $_ }
+                    elseif ($_.text) { [string]$_.text }
+                    elseif ($_.name) { [string]$_.name }
+                } | Where-Object { $_ })
+                if ($bits.Count) { return ($bits -join ' ') }
+            }
+            foreach ($prop in @('text','name','title','label','simpleText')) {
+                $candidate = $obj.PSObject.Properties[$prop]
+                if ($candidate -and $candidate.Value -is [string]) { return [string]$candidate.Value }
+            }
+            if ($obj.runs) {
+                $bits = @($obj.runs | ForEach-Object { $_.text } | Where-Object { $_ })
+                if ($bits.Count) { return ($bits -join '') }
+            }
+        } catch { }
+    }
+    return $value
 }
 function Normalize([string]$name) {
     if ([string]::IsNullOrWhiteSpace($name)) { return '' }
@@ -53,8 +79,8 @@ try {
         if (-not $hasSong) { continue }
         $scanned++
         foreach ($r in $rows) {
-            $title = Get-Prop $r $songCols
-            $artist = Get-Prop $r $artistCols
+            $title = Decode-TakeoutCell (Get-Prop $r $songCols)
+            $artist = Decode-TakeoutCell (Get-Prop $r $artistCols)
             $videoId = Get-Prop $r @('Video ID','VideoId','YouTube Video ID','Youtube Video ID')
             $url = Get-Prop $r @('Video URL','Video Url','URL','Link','YouTube URL')
             if (-not $videoId -and $url -match '(?:v=|youtu\.be/|/shorts/)([A-Za-z0-9_-]{11})') { $videoId=$Matches[1] }
@@ -103,6 +129,7 @@ try {
             [pscustomobject]@{Artist=$entry.Value; LidarrNameMatch= if($lidarrCount -lt 0){'NOT_CHECKED'} elseif($lidarrNames.ContainsKey($entry.Key)){'YES_UNVERIFIED'}else{'NO'} }
         }
     )
+    $weakMetadata = ($songs.Count -gt 0 -and $artistSet.Count -eq 0 -and @($songs | Where-Object { $_.VideoId }).Count -eq 0)
     $tracksPath = Join-Path $runFolder 'tracks.csv'
     $artistPath = Join-Path $runFolder 'artists.csv'
     $queuePath = Join-Path $runFolder 'optional-youtube-queue.csv'
@@ -117,10 +144,11 @@ try {
     [void]$sb.AppendLine('<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Music Takeout Toolkit</title><style>body{font:16px system-ui,Segoe UI,sans-serif;max-width:1100px;margin:36px auto;padding:0 16px;color:#242936}a{color:#135ebc}.stats{display:flex;gap:12px;flex-wrap:wrap}.stat,.panel{border:1px solid #ddd;border-radius:12px;padding:16px;margin:12px 0}.stat b{display:block;font-size:28px}small{color:#616b78}table{border-collapse:collapse;width:100%;font-size:13px}th,td{border-bottom:1px solid #e4e6e8;padding:8px;text-align:left;word-break:break-word}input{padding:10px;max-width:100%;width:450px}.scroll{overflow:auto;max-height:520px}</style></head><body>')
     [void]$sb.AppendLine('<h1>YouTube Music Takeout to Lidarr</h1><p><small>Local audit. No downloads, no Lidarr changes, no file moves.</small></p>')
     [void]$sb.AppendLine('<div class="stats"><div class="stat"><b>'+$songs.Count+'</b>Track rows found</div><div class="stat"><b>'+$artistSet.Count+'</b>Artist credits</div><div class="stat"><b>'+$withVideo+'</b>Valid YouTube IDs</div><div class="stat"><b>'+$scanned+'</b>Recognized CSV files</div></div>')
-    [void]$sb.AppendLine('<div class="panel"><h2>What you can do next</h2><p><a href="https://takeout.google.com/settings/takeout">Get a new Google Takeout export</a> · Review the local tracks.csv and artists.csv · Use optional-youtube-queue.csv to review original source videos · Connect Lidarr for a read-only name comparison · Download your own or authorized content separately.</p><p><strong>Nothing has been downloaded.</strong> Name matches are not proof of a specific recording. Your Takeout format may contain other music records not recognized by this CSV-only version.</p><p>Lidarr: '+(Html $lidarrState)+'; artist count: '+$(if($lidarrCount -ge 0){$lidarrCount}else{'not checked'})+'; matched track rows: '+$countKnown+'; missing-by-name track rows: '+$countMissing+'.</p></div>')
+    [void]$sb.AppendLine('<div class="panel"><h2>What you can do next</h2><p><a href="https://takeout.google.com/settings/takeout">Get a new Google Takeout export</a> | Review the local tracks.csv and artists.csv | Use optional-youtube-queue.csv to review original source videos | Connect Lidarr for a read-only name comparison | Download your own or authorized content separately.</p><p><strong>Nothing has been downloaded.</strong> Name matches are not proof of a specific recording. Your Takeout format may contain other music records not recognized by this CSV-only version.</p><p>Lidarr: '+(Html $lidarrState)+'; artist count: '+$(if($lidarrCount -ge 0){$lidarrCount}else{'not checked'})+'; matched track rows: '+$countKnown+'; missing-by-name track rows: '+$countMissing+'.</p></div>')
+    if ($weakMetadata) { [void]$sb.AppendLine('<div class="panel"><h2>Incomplete source metadata</h2><p>These rows contain titles but no recognizable artist credits or YouTube video IDs. The inventory is <strong>not a complete music-library match</strong>. Inspect the selected Takeout archive and its file types before requesting Lidarr searches.</p></div>') }
     [void]$sb.AppendLine('<div class="panel"><h2>Saved songs</h2><input id="find" type="search" placeholder="Search artist or song" oninput="filterRows()"><div class="scroll"><table id="tracks"><thead><tr><th>Artist</th><th>Song</th><th>Match status</th><th>Source video</th></tr></thead><tbody>')
     foreach($s in $songs) {
-        $link = if ($s.YouTubeUrl) {'<a href="'+(Html $s.YouTubeUrl)+'" target="_blank" rel="noopener">Open</a>'} else {'—'}
+        $link = if ($s.YouTubeUrl) {'<a href="'+(Html $s.YouTubeUrl)+'" target="_blank" rel="noopener">Open</a>'} else {'Not available'}
         [void]$sb.AppendLine('<tr><td>'+(Html $s.Artist)+'</td><td>'+(Html $s.Song)+'</td><td>'+(Html $s.MatchStatus)+'</td><td>'+$link+'</td></tr>')
     }
     [void]$sb.AppendLine('</tbody></table></div></div><script>function filterRows(){var q=document.getElementById("find").value.toLowerCase();document.querySelectorAll("#tracks tbody tr").forEach(function(r){r.hidden=!r.textContent.toLowerCase().includes(q)})}</script></body></html>')
@@ -133,6 +161,7 @@ try {
     Write-Host "Lidarr: $lidarrState"
     Write-Host "Reports saved in: $runFolder"
     Write-Host 'No searches, downloads or imports occurred during inventory.'
+    if ($weakMetadata) { Write-Warning 'Partial metadata: zero artists and zero video IDs. Do not use these rows as confirmed music matches.' }
     if ($scanned -eq 0) { Write-Warning 'No supported music CSVs were found. Some Google Takeout exports require additional format support (HTML or JSON). Inspect the archive before concluding it contains no music.' }
     if (-not $NoPrompt) {
         do {

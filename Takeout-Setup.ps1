@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 # Google Takeout helper. Only guides the user and discovers local archives.
 # No browser automation, Google account access, downloads, or deleting user files.
 function Get-TakeoutDownloadsDirectory {
@@ -56,27 +56,13 @@ function Resolve-TakeoutInput {
                 Write-Host '  d. Download the ZIP in your browser. Return here and select option 2.'
                 Write-Host '  Important: Google does not provide this tool an export-request API.'
                 try { Start-Process 'https://takeout.google.com/settings/takeout' } catch { Write-Warning 'Could not open browser. Visit https://takeout.google.com/settings/takeout' }
-                Write-Host 'Press Enter when the file has downloaded, or type Q to leave and return later.'
+                Write-Host 'Press Enter to scan Downloads immediately, or type Q to leave and return later.'
                 $reply = Read-Host 'Continue'
                 if ($reply.Trim() -ieq 'Q') { return '' }
+                # Enter now immediately scans Downloads rather than returning to the main menu.
+                $choice = '2'
             }
-            '2' {
-                $items = @(Get-TakeoutCandidates)
-                Write-Host "`nDownloads directory: $(Get-TakeoutDownloadsDirectory)"
-                if ($items.Count -eq 0) {
-                    Write-Warning 'No likely Takeout ZIP or folder was found. You can paste its path with option 3.'
-                    break
-                }
-                for ($i=0; $i -lt $items.Count; $i++) {
-                    $type = if ($items[$i].PSIsContainer) { 'FOLDER' } else { 'ZIP' }
-                    Write-Host ("{0}. [{1}] {2} ({3})" -f ($i+1), $type, $items[$i].Name, $items[$i].LastWriteTime.ToString('yyyy-MM-dd HH:mm'))
-                }
-                $pick = (Read-Host 'Enter number to select (Enter to return)').Trim()
-                $number = 0
-                if ([int]::TryParse($pick, [ref]$number) -and $number -ge 1 -and $number -le $items.Count) {
-                    $found = $items[$number-1].FullName
-                }
-            }
+            '2' { }
             '3' {
                 $candidate = (Read-Host 'Paste the full ZIP or folder path').Trim().Trim('"')
                 if ($candidate -and (Test-Path -LiteralPath $candidate)) { $found = (Resolve-Path -LiteralPath $candidate).Path }
@@ -88,6 +74,22 @@ function Resolve-TakeoutInput {
             }
             'Q' { return '' }
             default { Write-Warning 'Choose one of the displayed options.' }
+        }
+        if ($choice -eq '2' -and -not $found) {
+            # Scan even when the user arrived here by pressing Enter after Takeout instructions.
+            $items = @(Get-TakeoutCandidates)
+            Write-Host "`nDownloads directory: $(Get-TakeoutDownloadsDirectory)"
+            if ($items.Count -eq 0) {
+                Write-Warning 'No likely Takeout archive found yet. Try again later or select option 3.'
+            } else {
+                for ($i=0; $i -lt $items.Count; $i++) {
+                    $type = if ($items[$i].PSIsContainer) { 'FOLDER' } else { 'ZIP' }
+                    Write-Host ("{0}. [{1}] {2} ({3})" -f ($i+1),$type,$items[$i].Name,$items[$i].LastWriteTime.ToString('yyyy-MM-dd HH:mm'))
+                }
+                $pick = (Read-Host 'Enter number to select (Enter to return)').Trim()
+                $number = 0
+                if ([int]::TryParse($pick,[ref]$number) -and $number -ge 1 -and $number -le $items.Count) { $found = $items[$number-1].FullName }
+            }
         }
         if ($found) {
             if (-not ((Test-Path -LiteralPath $found -PathType Container) -or
