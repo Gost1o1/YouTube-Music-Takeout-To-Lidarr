@@ -37,7 +37,7 @@ function New-Button($text,$x,$y,$w,$handler){
  $b.Add_Click($handler);$script:form.Controls.Add($b);return $b
 }
 $script:form=New-Object System.Windows.Forms.Form
-$script:form.Text='YouTube Music Takeout to Lidarr  |  v0.5.0'
+$script:form.Text='YouTube Music Takeout to Lidarr  |  v0.5.1'
 $script:form.Size=New-Object System.Drawing.Size(1100,770)
 $script:form.StartPosition='CenterScreen';$script:form.MinimumSize=New-Object System.Drawing.Size(850,650)
 $script:form.Font=New-Object System.Drawing.Font('Segoe UI',10)
@@ -53,7 +53,7 @@ $browse=New-Button 'Choose Takeout ZIP' 785 91 165 {
  $picker.Dispose()
 }
 $browse.Anchor='Top,Right'
-$download=New-Button 'Open Google Takeout' 20 135 174 {Start-Process 'https://takeout.google.com/settings/takeout'}
+$download=New-Button 'Open Google Takeout' 20 135 174 {Start-Process 'https://takeout.google.com/settings/takeout/custom/youtube'}
 $discover=New-Button 'Find newest Takeout' 201 135 176 {
  $dl=Join-Path $env:USERPROFILE 'Downloads'
  $files=@(Get-ChildItem -LiteralPath $dl -Filter 'takeout*.zip' -File -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending)
@@ -144,4 +144,88 @@ $script:timer.Add_Tick({
 })
 $script:timer.Start()
 $script:form.Add_FormClosing({$script:timer.Stop();$script:sessionKey='';$script:keyBox.Clear();if($script:engineProcess -and -not $script:engineProcess.HasExited){$choice=[System.Windows.Forms.MessageBox]::Show('Analysis is still running. Leave it running and close the interface?','Analysis running','YesNo');if($choice -ne 'Yes'){$_.Cancel=$true;$script:timer.Start()}}})
+
+# First-run wizard: one question per screen. This deliberately does not access Gmail data.
+$script:wizard=New-Object System.Windows.Forms.Panel
+$script:wizard.Dock='Fill';$script:wizard.BackColor=[System.Drawing.Color]::White
+$script:form.Controls.Add($script:wizard);$script:wizard.BringToFront()
+$script:wizardStage=0
+$script:wizardHeading=New-Object System.Windows.Forms.Label
+$script:wizardHeading.Font=New-Object System.Drawing.Font('Segoe UI',19,[System.Drawing.FontStyle]::Bold)
+$script:wizardHeading.Location=New-Object System.Drawing.Point(75,65);$script:wizardHeading.Size=New-Object System.Drawing.Size(880,48)
+$script:wizard.Controls.Add($script:wizardHeading)
+$script:wizardText=New-Object System.Windows.Forms.Label
+$script:wizardText.Font=New-Object System.Drawing.Font('Segoe UI',11)
+$script:wizardText.Location=New-Object System.Drawing.Point(77,126);$script:wizardText.Size=New-Object System.Drawing.Size(845,95)
+$script:wizard.Controls.Add($script:wizardText)
+$script:wizardIndicator=New-Object System.Windows.Forms.Label
+$script:wizardIndicator.ForeColor=[System.Drawing.Color]::SlateGray
+$script:wizardIndicator.Location=New-Object System.Drawing.Point(77,25);$script:wizardIndicator.Size=New-Object System.Drawing.Size(520,28)
+$script:wizard.Controls.Add($script:wizardIndicator)
+$script:wizardMain=New-Object System.Windows.Forms.Button
+$script:wizardMain.Location=New-Object System.Drawing.Point(77,235);$script:wizardMain.Size=New-Object System.Drawing.Size(340,44)
+$script:wizard.Controls.Add($script:wizardMain)
+$script:wizardNext=New-Object System.Windows.Forms.Button
+$script:wizardNext.Location=New-Object System.Drawing.Point(77,299);$script:wizardNext.Size=New-Object System.Drawing.Size(340,44)
+$script:wizard.Controls.Add($script:wizardNext)
+$script:wizardSkip=New-Object System.Windows.Forms.Button
+$script:wizardSkip.Text='I already have a Takeout ZIP'
+$script:wizardSkip.Location=New-Object System.Drawing.Point(77,365);$script:wizardSkip.Size=New-Object System.Drawing.Size(340,42)
+$script:wizard.Controls.Add($script:wizardSkip)
+function Set-WizardStage([int]$stage){
+ $script:wizardStage=$stage
+ $script:wizardIndicator.Text=('GOOGLE TAKEOUT  /  STEP '+($stage+1)+' OF 3')
+ if($stage -eq 0){
+  $script:wizardHeading.Text='Choose the Google account with your music'
+  $script:wizardText.Text='Google will show the available accounts in your browser. Select the account containing your YouTube Music library. The app never reads your password or browser cookies.'
+  $script:wizardMain.Text='Choose Google account'
+  $script:wizardNext.Text='Account selected - Continue'
+ } elseif($stage -eq 1){
+  $script:wizardHeading.Text='Request your YouTube Music export'
+  $script:wizardText.Text='Google Takeout will open with YouTube and YouTube Music preselected. On Google''s page select: email download link, export once, ZIP, and 50 GB. Review the settings and click Create export there.'
+  $script:wizardMain.Text='Open Google Takeout'
+  $script:wizardNext.Text='Export requested - Continue'
+ } else {
+  $script:wizardHeading.Text='Wait for Google to prepare your export'
+  $script:wizardText.Text='Google sends a notification when your export is ready. You can check Gmail for the notification, download the ZIP from Google Takeout, and then load it here. Gmail access is not granted to this app.'
+  $script:wizardMain.Text='Find the ready email in Gmail'
+  $script:wizardNext.Text='Find my downloaded ZIP'
+ }
+}
+$script:wizardMain.Add_Click({
+ switch($script:wizardStage){
+  0 {Start-Process 'https://accounts.google.com/AccountChooser'}
+  1 {Start-Process 'https://takeout.google.com/settings/takeout/custom/youtube'}
+  2 {Start-Process 'https://mail.google.com/mail/u/0/#search/from%3A(noreply%40google.com)+subject%3A%22Your+Google+data+is+ready+to+download%22'}
+ }
+})
+$script:wizardNext.Add_Click({
+ if($script:wizardStage -lt 2){Set-WizardStage ($script:wizardStage+1);return}
+ $dl=Join-Path $env:USERPROFILE 'Downloads'
+ $files=@(Get-ChildItem -LiteralPath $dl -Filter 'takeout*.zip' -File -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending)
+ if($files.Count -eq 0){
+  $picker=New-Object System.Windows.Forms.OpenFileDialog
+  $picker.Title='Choose the Google Takeout ZIP';$picker.Filter='ZIP archives (*.zip)|*.zip|All files (*.*)|*.*';$picker.InitialDirectory=$dl
+  if($picker.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK){$script:sourceBox.Text=$picker.FileName;$script:wizard.Hide();Info 'Takeout archive selected. Click Analyze Takeout.'}
+  $picker.Dispose();return
+ }
+ $candidate=$files[0]
+ $ans=[System.Windows.Forms.MessageBox]::Show(('Use this Takeout archive?'+[Environment]::NewLine+$candidate.FullName),'Confirm Takeout ZIP',[System.Windows.Forms.MessageBoxButtons]::YesNo,[System.Windows.Forms.MessageBoxIcon]::Question)
+ if($ans -eq [System.Windows.Forms.DialogResult]::Yes){$script:sourceBox.Text=$candidate.FullName;$script:wizard.Hide();Info 'Takeout archive selected. Click Analyze Takeout.'}
+ else {
+  $picker=New-Object System.Windows.Forms.OpenFileDialog;$picker.Filter='ZIP archives (*.zip)|*.zip|All files (*.*)|*.*';$picker.InitialDirectory=$dl
+  if($picker.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK){$script:sourceBox.Text=$picker.FileName;$script:wizard.Hide();Info 'Takeout archive selected. Click Analyze Takeout.'}
+  $picker.Dispose()
+ }
+})
+$script:wizardSkip.Add_Click({
+ $picker=New-Object System.Windows.Forms.OpenFileDialog
+ $picker.Title='Choose an existing Google Takeout ZIP';$picker.Filter='ZIP archives (*.zip)|*.zip|All files (*.*)|*.*'
+ $picker.InitialDirectory=Join-Path $env:USERPROFILE 'Downloads'
+ if($picker.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK){$script:sourceBox.Text=$picker.FileName;$script:wizard.Hide();Info 'Takeout archive selected. Click Analyze Takeout.'}
+ $picker.Dispose()
+})
+Set-WizardStage 0
+if($InputPath -and (Test-Path -LiteralPath $InputPath)){$script:wizard.Hide()}
+
 [void][System.Windows.Forms.Application]::Run($script:form)
