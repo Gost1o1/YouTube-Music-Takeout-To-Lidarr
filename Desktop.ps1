@@ -38,7 +38,7 @@ function New-Button($text,$x,$y,$w,$handler){
  $b.Add_Click($handler);$script:form.Controls.Add($b);return $b
 }
 $script:form=New-Object System.Windows.Forms.Form
-$script:form.Text='YouTube Music Takeout to Lidarr  |  v0.5.9'
+$script:form.Text='YouTube Music Takeout to Lidarr  |  v0.6.0'
 $script:form.Size=New-Object System.Drawing.Size(1100,770)
 $script:form.StartPosition='CenterScreen';$script:form.MinimumSize=New-Object System.Drawing.Size(850,650)
 $script:form.Font=New-Object System.Drawing.Font('Segoe UI',10)
@@ -444,6 +444,252 @@ function Select-TakeoutFromPicker {
   Start-WizardAnalysis $picker.FileName
  } finally {$picker.Dispose()}
 }
+
+# Guided migration workspace. The old administrative dashboard remains behind the wizard,
+# but is NEVER the normal next step. Advanced writes are intentionally not enabled.
+$script:guided=New-Object System.Windows.Forms.Panel
+$script:guided.Dock='Fill'
+$script:guided.AutoScroll=$true
+$script:guided.BackColor=[System.Drawing.Color]::White
+$script:form.Controls.Add($script:guided)
+$script:guided.BringToFront()
+$script:guided.Hide()
+$script:guideScreen=7
+$script:reviewIndex=0
+$script:songIndex=0
+$script:reviewDecisions=@{}
+$script:songDecisions=@{}
+$script:guideMode='now'
+$script:guideSelection=@{}
+$script:guideArtistNames=@()
+$script:guideSongRows=@()
+$script:guideReference=@{}
+function GLabel([string]$text,[int]$x,[int]$y,[int]$w,[int]$h,[int]$size=11,[bool]$bold=$false){
+ $l=New-Object System.Windows.Forms.Label
+ $l.Text=$text;$l.Location=New-Object System.Drawing.Point($x,$y);$l.Size=New-Object System.Drawing.Size($w,$h)
+ $l.TextAlign='MiddleCenter';$l.Font=New-Object System.Drawing.Font('Segoe UI',$size,$(if($bold){[System.Drawing.FontStyle]::Bold}else{[System.Drawing.FontStyle]::Regular}))
+ $script:guided.Controls.Add($l);return $l
+}
+function GButton([string]$text,[int]$x,[int]$y,[int]$w,[int]$h,$onClick){
+ $b=New-Object System.Windows.Forms.Button
+ $b.Text=$text;$b.Location=New-Object System.Drawing.Point($x,$y);$b.Size=New-Object System.Drawing.Size($w,$h)
+ $b.FlatStyle='System';$b.Add_Click($onClick);$script:guided.Controls.Add($b);return $b
+}
+function GBar([string]$title,[int]$done,[int]$total,[int]$y){
+ [void](GLabel $title 155 $y 760 27 11 $true)
+ $bar=New-Object System.Windows.Forms.ProgressBar
+ $bar.Minimum=0;$bar.Maximum=100;$bar.Value=$(if($total -gt 0){[math]::Min(100,[int](100*$done/$total))}else{0})
+ $bar.Style='Continuous';$bar.Size=New-Object System.Drawing.Size(600,9)
+ $bar.Location=New-Object System.Drawing.Point(235,($y+34));$script:guided.Controls.Add($bar)
+ [void](GLabel ("$done of $total") 385 ($y+47) 300 25 9 $false)
+}
+function GTitle([string]$heading,[string]$description){
+ $w=New-Object System.Windows.Forms.ProgressBar;$w.Minimum=0;$w.Maximum=100;$w.Value=90
+ $w.Size=New-Object System.Drawing.Size(250,8);$w.Location=New-Object System.Drawing.Point(415,35)
+ $script:guided.Controls.Add($w)
+ [void](GLabel $heading 75 65 930 63 21 $true)
+ if($description){[void](GLabel $description 105 126 870 60 10 $false)}
+}
+function GCard([string]$number,[string]$label,[int]$x,[int]$y,$handler){
+ $btn=GButton ($number+[Environment]::NewLine+$label) $x $y 225 88 $handler
+ $btn.Font=New-Object System.Drawing.Font('Segoe UI',11,[System.Drawing.FontStyle]::Bold)
+ return $btn
+}
+function Save-GuidedDecisions {
+ if(-not $script:currentReport){return}
+ try{
+  $state=[pscustomobject]@{ArtistDecisions=$script:reviewDecisions;SongDecisions=$script:songDecisions;Workflow=$script:guideMode;SavedAt=(Get-Date).ToString('o')}
+  $state|ConvertTo-Json -Depth 6|Set-Content -LiteralPath (Join-Path $script:currentReport 'guided-review.json') -Encoding UTF8
+ }catch{Info ('Could not save review decisions: '+$_.Exception.Message)}
+}
+function Load-GuidedData {
+ $script:guideSongRows=@($script:tracks)
+ $names=@($script:tracks|Where-Object {$_.Artist}|ForEach-Object {$_.Artist.Trim()}|Where-Object {$_}|Sort-Object -Unique)
+ $script:guideArtistNames=$names
+ $script:guideReference=@{}
+ if($script:installedArtists){
+  foreach($a in $script:installedArtists){
+   if($a.artistName){$k=[regex]::Replace($a.artistName.ToLowerInvariant(),'[^\p{L}\p{N}]','');$script:guideReference[$k]=$true}
+  }
+ }
+ $script:reviewIndex=0;$script:songIndex=0
+ $saved=if($script:currentReport){Join-Path $script:currentReport 'guided-review.json'}else{''}
+ if($saved -and (Test-Path $saved)){
+  try{
+   $data=Get-Content -LiteralPath $saved -Raw|ConvertFrom-Json
+   $script:reviewDecisions=@{};$script:songDecisions=@{}
+   if($data.ArtistDecisions){$data.ArtistDecisions.PSObject.Properties|ForEach-Object {$script:reviewDecisions[$_.Name]=$_.Value}}
+   if($data.SongDecisions){$data.SongDecisions.PSObject.Properties|ForEach-Object {$script:songDecisions[$_.Name]=$_.Value}}
+   if($data.Workflow -in @('now','later')){$script:guideMode=$data.Workflow}
+  }catch{Info 'Previous manual review decisions could not be loaded.'}
+ }
+}
+function GExistingArtistCount {
+ $n=0
+ foreach($name in $script:guideArtistNames){$k=[regex]::Replace($name.ToLowerInvariant(),'[^\p{L}\p{N}]','');if($script:guideReference.ContainsKey($k)){$n++}}
+ return $n
+}
+function GReviewDecision([string]$decision,[bool]$song){
+ if($song){
+  $key=[string]$script:songIndex;$script:songDecisions[$key]=$decision
+  if($script:songIndex -lt ($script:guideSongRows.Count-1)){$script:songIndex++}
+  Save-GuidedDecisions;Show-GuidedScreen 10
+ }else{
+  $key=[string]$script:reviewIndex;$script:reviewDecisions[$key]=$decision
+  if($script:reviewIndex -lt ($script:guideArtistNames.Count-1)){$script:reviewIndex++}
+  Save-GuidedDecisions;Show-GuidedScreen 9
+ }
+}
+function GOpenArtist([bool]$candidate){
+ if(-not $script:guideArtistNames.Count){return}
+ $name=$script:guideArtistNames[$script:reviewIndex]
+ $uri=[uri]::EscapeDataString($name)
+ if($candidate){Start-Process ('https://musicbrainz.org/search?query='+$uri+'&type=artist')}
+ else{Start-Process ('https://music.youtube.com/search?q='+$uri)}
+}
+function GOpenSong([bool]$candidate){
+ if(-not $script:guideSongRows.Count){return}
+ $row=$script:guideSongRows[$script:songIndex]
+ if(-not $candidate -and $row.YouTubeUrl -match '^https://music\.youtube\.com/watch\?v='){Start-Process $row.YouTubeUrl;return}
+ $uri=[uri]::EscapeDataString(([string]$row.Artist)+' '+([string]$row.Song))
+ if($candidate){Start-Process ('https://musicbrainz.org/search?query='+$uri+'&type=recording')}
+ else{Start-Process ('https://music.youtube.com/search?q='+$uri)}
+}
+function Show-GuidedScreen([int]$screen){
+ $script:guideScreen=$screen
+ $script:wizard.Hide();$script:guided.Show();$script:guided.BringToFront()
+ $script:guided.SuspendLayout()
+ $script:guided.Controls.Clear()
+ $script:guided.AutoScrollPosition=New-Object System.Drawing.Point(0,0)
+ switch($screen){
+  7 {
+   Load-GuidedData
+   GTitle 'Library Comparison Results' 'Your YouTube Music library compared with the artists currently in Lidarr.'
+   $artists=$script:guideArtistNames.Count;$songs=$script:guideSongRows.Count
+   $existing=GExistingArtistCount
+   [void](GLabel 'YouTube Music Data' 135 194 805 33 15 $true)
+   [void](GLabel 'Found' 135 230 805 25 11 $true)
+   [void](GCard ([string]$artists) 'Artists' 305 261 {Show-GuidedScreen 9})
+   [void](GCard ([string]$songs) 'Songs' 540 261 {Show-GuidedScreen 10})
+   [void](GLabel 'Needs Review' 135 362 805 25 11 $true)
+   [void](GCard ([string]$artists) 'Artists - identity verification' 305 394 {Show-GuidedScreen 9})
+   [void](GCard ([string]$songs) 'Songs - recording verification' 540 394 {Show-GuidedScreen 10})
+   [void](GLabel 'YouTube Music vs. Lidarr' 135 502 805 35 15 $true)
+   [void](GLabel 'Pending to Be Added (verified matches only)' 130 541 820 26 11 $true)
+   [void](GCard '0' 'Artists approved for import' 305 571 {Show-GuidedScreen 9})
+   [void](GCard '0' 'Songs approved for search' 540 571 {Show-GuidedScreen 10})
+   [void](GLabel 'Already in Lidarr' 135 668 805 25 11 $true)
+   [void](GCard ([string]$existing) 'Artist names present (unverified)' 305 700 {Show-GuidedScreen 9})
+   [void](GCard 'Unknown' 'Songs - requires release scan' 540 700 {Show-GuidedScreen 10})
+   [void](GLabel 'Artist-name matches are not proof of identity. No files or releases are marked downloaded without confirmation.' 100 797 880 44 9 $false)
+   [void](GButton 'Continue' 365 856 350 44 {Show-GuidedScreen 8})
+  }
+  8 {
+   GTitle 'How Would You Like to Continue?' 'Some matches need careful verification before they can be imported or searched.'
+   [void](GLabel 'Add Verified Matches Now' 160 219 760 35 15 $true)
+   [void](GLabel 'When real verified imports and approved release searches are available, run them while you review remaining items.' 170 259 740 63 11 $false)
+   [void](GButton 'Choose Add Verified Matches First' 323 338 434 48 {$script:guideMode='now';Save-GuidedDecisions;Show-GuidedScreen 9})
+   [void](GLabel 'Review Everything First' 160 421 760 35 15 $true)
+   [void](GLabel 'Complete the artist and song checks before taking any actions in Lidarr.' 170 459 740 62 11 $false)
+   [void](GButton 'Choose Review Everything First' 323 537 434 48 {$script:guideMode='later';Save-GuidedDecisions;Show-GuidedScreen 9})
+   [void](GLabel 'This build supports read-only comparisons and locally saved review decisions. Actual background imports and downloads are not yet enabled.' 150 616 780 75 10 $false)
+   [void](GButton 'Back' 380 714 320 40 {Show-GuidedScreen 7})
+  }
+  9 {
+   $total=$script:guideArtistNames.Count;$done=$script:reviewDecisions.Count
+   $matched=@($script:reviewDecisions.Values|Where-Object {$_ -eq 'matched'}).Count
+   $second=@($script:reviewDecisions.Values|Where-Object {$_ -eq 'second'}).Count
+   GBar 'Being Added to Your Lidarr Library' 0 0 15
+   GBar 'Manual Artist Review Progress' $done $total 98
+   [void](GLabel ("Artists matched: $matched       Needs second review: $second") 150 181 780 30 11 $true)
+   GTitle 'Compare Artist Matches' 'Compare the source artist and a MusicBrainz identity. No artist is imported by confirming a review.'
+   if($total){
+    $name=$script:guideArtistNames[$script:reviewIndex]
+    [void](GLabel ("Artist $($script:reviewIndex+1) of $total") 200 196 680 26 10 $false)
+    [void](GLabel 'YouTube Music' 120 250 390 30 14 $true)
+    [void](GLabel 'MusicBrainz Candidate' 562 250 390 30 14 $true)
+    $left=New-Object System.Windows.Forms.Panel;$left.BackColor=[System.Drawing.Color]::FromArgb(240,242,245);$left.Location=New-Object System.Drawing.Point(165,290);$left.Size=New-Object System.Drawing.Size(310,170);$script:guided.Controls.Add($left)
+    $right=New-Object System.Windows.Forms.Panel;$right.BackColor=[System.Drawing.Color]::FromArgb(240,242,245);$right.Location=New-Object System.Drawing.Point(602,290);$right.Size=New-Object System.Drawing.Size(310,170);$script:guided.Controls.Add($right)
+    [void](GLabel 'Artist image if available' 180 339 280 44 10 $false)
+    [void](GLabel 'Identity / picture not yet verified' 610 339 295 44 10 $false)
+    [void](GLabel $name 160 465 330 42 14 $true)
+    [void](GLabel 'Select a candidate from MusicBrainz' 590 465 340 45 11 $false)
+    [void](GButton 'Open YouTube Music' 162 518 315 43 {GOpenArtist $false})
+    [void](GButton 'Find MusicBrainz Artists' 602 518 315 43 {GOpenArtist $true})
+    [void](GLabel 'Other artists: open MusicBrainz search to compare identities and pictures. The in-app candidate gallery is not yet connected to image providers.' 120 573 840 50 10 $false)
+    [void](GButton 'Matched (save review)' 352 643 375 40 {GReviewDecision 'matched' $false})
+    [void](GButton 'Not a Match - Second Review' 352 692 375 40 {GReviewDecision 'second' $false})
+    [void](GButton 'Previous' 296 750 228 38 {if($script:reviewIndex -gt 0){$script:reviewIndex--;Show-GuidedScreen 9}})
+    [void](GButton 'Next' 546 750 228 38 {if($script:reviewIndex -lt $script:guideArtistNames.Count-1){$script:reviewIndex++;Show-GuidedScreen 9}})
+   }else{[void](GLabel 'No artist names found in this export.' 190 290 700 50 13 $false)}
+   [void](GButton 'Review Songs' 350 812 380 42 {Show-GuidedScreen 10})
+   [void](GButton 'Comparison Summary' 350 866 380 40 {Show-GuidedScreen 7})
+  }
+  10 {
+   $total=$script:guideSongRows.Count;$done=$script:songDecisions.Count
+   $matched=@($script:songDecisions.Values|Where-Object {$_ -eq 'matched'}).Count
+   $second=@($script:songDecisions.Values|Where-Object {$_ -eq 'second'}).Count
+   GBar 'Being Added to Your Lidarr Library' 0 0 15
+   GBar 'Manual Song Review Progress' $done $total 98
+   [void](GLabel ("Songs matched: $matched       Needs second review: $second") 150 181 780 30 11 $true)
+   GTitle 'Compare Song Matches' 'Use the exact Takeout link and MusicBrainz recording search to review the correct release or version.'
+   if($total){
+    $entry=$script:guideSongRows[$script:songIndex]
+    [void](GLabel ("Song $($script:songIndex+1) of $total") 230 204 620 25 10 $false)
+    [void](GLabel 'YouTube Music' 135 245 370 30 13 $true)
+    [void](GLabel 'MusicBrainz Candidate' 550 245 380 30 13 $true)
+    foreach($x in @(165,603)){$panel=New-Object System.Windows.Forms.Panel;$panel.BackColor=[System.Drawing.Color]::FromArgb(240,242,245);$panel.Location=New-Object System.Drawing.Point($x,287);$panel.Size=New-Object System.Drawing.Size(310,150);$script:guided.Controls.Add($panel)}
+    [void](GLabel 'Album artwork if available' 175 325 290 55 10 $false)
+    [void](GLabel 'Candidate artwork pending' 610 325 296 55 10 $false)
+    [void](GLabel (([string]$entry.Artist)+' - '+([string]$entry.Song)) 145 446 354 61 12 $true)
+    [void](GLabel 'Choose an exact recording/version' 582 446 342 61 11 $false)
+    [void](GButton 'Open YouTube Music' 163 513 315 42 {GOpenSong $false})
+    [void](GButton 'Find MusicBrainz Recordings' 603 513 315 42 {GOpenSong $true})
+    [void](GLabel '10-second previews will appear only when an authorized source supplies playable clips. Playback is not available in this build.' 144 563 792 62 10 $false)
+    [void](GButton 'Matched (save review)' 351 642 379 40 {GReviewDecision 'matched' $true})
+    [void](GButton 'Not a Match - Second Review' 351 691 379 40 {GReviewDecision 'second' $true})
+    [void](GButton 'Previous' 294 746 228 38 {if($script:songIndex -gt 0){$script:songIndex--;Show-GuidedScreen 10}})
+    [void](GButton 'Next' 548 746 228 38 {if($script:songIndex -lt $script:guideSongRows.Count-1){$script:songIndex++;Show-GuidedScreen 10}})
+   }
+   [void](GButton 'Continue to Search Approval' 351 807 379 42 {Show-GuidedScreen 11})
+   [void](GButton 'Review Artists' 351 863 379 40 {Show-GuidedScreen 9})
+  }
+  11 {
+   GTitle 'Review Songs for Download' 'Select verified missing songs before reviewing proposed Lidarr release searches.'
+   [void](GLabel 'Ready to Search: 0      Already in Lidarr: not checked      Needs Review: '+$script:guideSongRows.Count 120 198 840 42 11 $true)
+   [void](GLabel 'No songs are eligible for download searches yet. Song-level MusicBrainz and Lidarr release verification must be implemented first.' 170 270 740 85 11 $false)
+   [void](GButton 'Select All (0 eligible)' 350 375 380 47 {})
+   [void](GLabel 'Selection and confirmation controls will be enabled when exact releases are verified. No downloads have been requested.' 155 456 770 80 10 $false)
+   [void](GButton 'See Download Status' 350 581 380 45 {Show-GuidedScreen 12})
+   [void](GButton 'Back to Song Review' 350 641 380 45 {Show-GuidedScreen 10})
+  }
+  12 {
+   GTitle 'Finding Your Music' 'Approved searches and actual downloaded files are tracked separately.'
+   GBar 'Search Request Progress' 0 0 212
+   [void](GLabel 'Downloaded: 0      Searching: 0      Waiting: 0      Failed: 0' 130 315 820 56 12 $true)
+   [void](GLabel 'No download or search jobs have been initiated by this version. Once enabled, genuine failures will be retried once; repeated failures will move to Needs Manual Add.' 170 410 740 92 11 $false)
+   [void](GButton 'View Migration Summary' 350 556 380 48 {Show-GuidedScreen 13})
+   [void](GButton 'Back to Download Approval' 350 616 380 46 {Show-GuidedScreen 11})
+  }
+  13 {
+   GTitle 'Your Music Migration Summary' 'Review your locally saved matching decisions and pending work.'
+   $artistDone=@($script:reviewDecisions.Values|Where-Object {$_ -eq 'matched'}).Count
+   $songDone=@($script:songDecisions.Values|Where-Object {$_ -eq 'matched'}).Count
+   $artistSecond=@($script:reviewDecisions.Values|Where-Object {$_ -eq 'second'}).Count
+   $songSecond=@($script:songDecisions.Values|Where-Object {$_ -eq 'second'}).Count
+   [void](GLabel 'Artists Added: 0       Songs Downloaded: 0' 145 236 790 50 15 $true)
+   [void](GLabel 'Still Processing: 0       Needs Manual Add: 0' 145 303 790 45 12 $false)
+   [void](GLabel ("Artist matches reviewed: $artistDone      Song matches reviewed: $songDone") 145 367 790 48 12 $true)
+   [void](GLabel ("Needs Second Review: $($artistSecond+$songSecond)") 145 428 790 45 12 $false)
+   [void](GLabel 'Matched review decisions are saved locally but have not been imported, searched, or downloaded in Lidarr.' 168 499 750 82 10 $false)
+   [void](GButton 'Open Reports Folder' 351 596 378 46 {if($script:currentReport){Start-Process explorer.exe -ArgumentList ('"'+$script:currentReport+'"')}})
+   [void](GButton 'Return to Comparison' 351 654 378 46 {Show-GuidedScreen 7})
+   [void](GButton 'Start Another Migration' 351 712 378 45 {$script:guided.Hide();Set-WizardStage 0;$script:wizard.Show();$script:wizard.BringToFront()})
+  }
+ }
+ $script:guided.ResumeLayout($true)
+}
+
 $script:wizardMain.Add_Click({
  switch($script:wizardStage){
   0 {Set-WizardStage 1}
@@ -479,7 +725,7 @@ $script:wizardMain.Add_Click({
     $script:connectionResult.Text=('Connected successfully. {0} Lidarr artist entries available for a read-only comparison. Advanced guided matching is still in development.' -f $list.Count)
    }catch{Alert ('Unable to authenticate with Lidarr: '+$_.Exception.Message)}
   }
-  6 {$script:wizard.Hide();Info 'Read-only comparison workspace opened. Advanced guided matching is not yet implemented.'}
+  6 {Show-GuidedScreen 7}
  }
 })
 $script:wizardNext.Add_Click({switch($script:wizardStage){2 {Set-WizardStage 1} 4 {Set-WizardStage 2} 5 {Set-WizardStage 4} 6 {Show-LidarrConnection} default {Set-WizardStage 0}}})

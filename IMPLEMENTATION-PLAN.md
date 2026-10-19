@@ -37,3 +37,7 @@ This is the agreed product behavior, **not** a claim that all functionality alre
 - Validate archive entries and handle malicious or corrupt ZIPs before extraction. Avoid path traversal, resource exhaustion and ZIP bombs.
 - Treat online metadata as untrusted input. Respect image licensing, API terms, provider rate limits and audio preview rights.
 - Keep all network write operations separately authorized and idempotent; store operation IDs and outcomes for resume/retry.
+
+
+## v0.6.0 update
+The complete navigable Windows Forms wizard is now represented by native screens. Data import/search actions are explicitly not enabled until verified server-side plumbing exists. In-app candidate artwork and audio previews remain pending.
