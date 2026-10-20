@@ -1,5 +1,5 @@
 #Requires -Version 5.1
-# v0.7.0 multi-pass verification. READ-ONLY. No Lidarr writes or downloads.
+# v0.7.1 fresh-run multi-pass verification. READ-ONLY. No Lidarr writes or downloads.
 [CmdletBinding()]
 param([Parameter(Mandatory)][string]$TracksCsv,[Parameter(Mandatory)][string]$ArtistsJson,[Parameter(Mandatory)][string]$CacheRoot,[Parameter(Mandatory)][string]$StatusFile)
 $ErrorActionPreference='Stop'
@@ -7,9 +7,10 @@ $ErrorActionPreference='Stop'
 [IO.Directory]::CreateDirectory($CacheRoot)|Out-Null
 $rows=@(Import-Csv -LiteralPath $TracksCsv -Encoding UTF8)
 $lidarr=@(Get-Content -LiteralPath $ArtistsJson -Raw -Encoding UTF8|ConvertFrom-Json)
+# Every run starts fresh. No stored match decisions or MusicBrainz responses are read.
 $sourceHash=(Get-FileHash -LiteralPath $TracksCsv -Algorithm SHA256).Hash
 $log=Join-Path $CacheRoot 'worker-errors.log'
-$lookupFailures=0;$completed=0;$script:lastCall=[datetime]::MinValue
+$lookupFailures=0;$completed=0;$script:liveRequests=0;$script:lastCall=[datetime]::MinValue
 function Normalize([string]$s){
  if(-not $s){return ''}
  $s=$s.Normalize([Text.NormalizationForm]::FormD).ToLowerInvariant()
@@ -17,21 +18,16 @@ function Normalize([string]$s){
  $s=[regex]::Replace($s,'(?i)\s*(?:\(|\[)(feat\.?|ft\.?|featuring)\s+.*?[\)\]]','')
  return [regex]::Replace($s,'[^\p{L}\p{N}]','')
 }
-function Cache-Key([string]$type,[string]$query){
- $sha=[Security.Cryptography.SHA256]::Create()
- try{return ([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes(($type+'|'+$query).ToLowerInvariant())))).Replace('-','').ToLowerInvariant()}finally{$sha.Dispose()}
-}
 function Fetch-MB([string]$type,[string]$q,[int]$limit=40){
- $key=Cache-Key $type $q;$file=Join-Path $CacheRoot ($key+'.json')
- if(Test-Path -LiteralPath $file){try{return Get-Content -LiteralPath $file -Raw -Encoding UTF8|ConvertFrom-Json}catch{}}
+ # Deliberately query MusicBrainz every time; no response cache.
  $uri='https://musicbrainz.org/ws/2/'+$type+'/?query='+[uri]::EscapeDataString($q)+'&fmt=json&limit='+$limit
  for($attempt=0;$attempt -lt 4;$attempt++){
   try{
    $delay=1250-([datetime]::UtcNow-$script:lastCall).TotalMilliseconds
    if($delay -gt 0){Start-Sleep -Milliseconds ([int]$delay)}
    $script:lastCall=[datetime]::UtcNow
+   $script:liveRequests++
    $r=Invoke-RestMethod -Uri $uri -TimeoutSec 30 -Headers @{'User-Agent'='YouTubeMusicTakeoutToLidarr/0.7.0 (personal desktop metadata verifier)';'Accept'='application/json'} -ErrorAction Stop
-   $r|ConvertTo-Json -Depth 16 -Compress|Set-Content -LiteralPath $file -Encoding UTF8
    return $r
   }catch{
    if($attempt -eq 3){$script:lookupFailures++;Add-Content -LiteralPath $log -Value ((Get-Date).ToString('s')+' MusicBrainz '+$type+': '+$_.Exception.Message);return $null}
@@ -71,12 +67,7 @@ for($i=0;$i -lt $rows.Count;$i++){
  if(-not $uniqueArtists.ContainsKey($key)){$uniqueArtists[$key]=$a;$group[$key]=New-Object 'System.Collections.Generic.List[int]'}
  $group[$key].Add($i)
 }
-# Prior per-row results are reused only for the same source fingerprint and algorithm revision.
-$prior=$null
-if(Test-Path -LiteralPath $StatusFile){try{$prior=Get-Content -LiteralPath $StatusFile -Raw -Encoding UTF8|ConvertFrom-Json}catch{}}
-if($prior -and $prior.sourceFingerprint -eq $sourceHash -and $prior.algorithmVersion -eq '0.7.0'){
- foreach($p in @($prior.songResults)){if($p.rowIndex -and $p.status -in @('recording_verified','artist_evidence_only')){$songResults[[string]$p.rowIndex]=$p}}
-}
+# No prior results or checkpoints are loaded, regardless of their existence.
 function Save-Status([bool]$done=$false){
  $ar=@($artistResults.Values);$sr=@($songResults.Values)
  $aExisting=@($ar|Where-Object {$_.status -eq 'existing'}).Count
@@ -84,16 +75,16 @@ function Save-Status([bool]$done=$false){
  $aReview=@($ar|Where-Object {$_.status -eq 'review'}).Count
  $sVerified=@($sr|Where-Object {$_.status -eq 'recording_verified'}).Count
  $sReview=@($sr|Where-Object {$_.status -eq 'review'}).Count
- $state=@{algorithmVersion='0.7.0';sourceFingerprint=$sourceHash;done=$done;processed=$script:completed;total=$rows.Count;artistsTotal=$uniqueArtists.Count;artistProcessed=$ar.Count;artistExisting=$aExisting;artistVerifiedMissing=$aMissing;artistReview=$aReview;songRecordingVerified=$sVerified;songReview=$sReview;lookupFailures=$script:lookupFailures;artistResults=$ar;songResults=$sr;updated=(Get-Date).ToString('s');note='Multi-pass title, album and credited-artist evidence. Confirmed missing artist IDs are candidates for later approval; no writes performed. Songs still require exact release and file verification.'}
- $tmp=$StatusFile+'.tmp';$state|ConvertTo-Json -Depth 14 -Compress|Set-Content -LiteralPath $tmp -Encoding UTF8
- if(Test-Path -LiteralPath $StatusFile){[IO.File]::Delete($StatusFile)}
- [IO.File]::Move($tmp,$StatusFile)
+ $state=@{algorithmVersion='0.7.1';sourceFingerprint=$sourceHash;done=$done;processed=$script:completed;total=$rows.Count;artistsTotal=$uniqueArtists.Count;artistProcessed=$ar.Count;artistExisting=$aExisting;artistVerifiedMissing=$aMissing;artistReview=$aReview;songRecordingVerified=$sVerified;songReview=$sReview;lookupFailures=$script:lookupFailures;liveRequests=$script:liveRequests;cachedResponses=0;artistResults=$ar;songResults=$sr;updated=(Get-Date).ToString('s');note='Multi-pass title, album and credited-artist evidence. Confirmed missing artist IDs are candidates for later approval; no writes performed. Songs still require exact release and file verification.'}
+ $json=ConvertTo-Json -InputObject $state -Depth 14 -Compress
+ [IO.File]::WriteAllText($StatusFile,$json,[Text.Encoding]::UTF8)
 }
 try{
+ Save-Status $false
  # PASS 1: exact recording + artist; PASS 2: title-only search for alternate credited names.
  for($i=0;$i -lt $rows.Count;$i++){
   $index=[string]($i+1)
-  if($songResults.ContainsKey($index)){$completed++;continue}
+  # Fresh run: every source record is checked.
   try {
   $artist=[string]$rows[$i].Artist;$song=[string]$rows[$i].Song;$album=[string]$rows[$i].Album
   if(-not $artist -or -not $song){$songResults[$index]=@{rowIndex=$i+1;artist=$artist;song=$song;status='review';reason='Source artist or title missing';candidates=@()};$completed++;continue}

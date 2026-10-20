@@ -1,4 +1,4 @@
-# YouTube Music Takeout to Lidarr v0.7.0
+# YouTube Music Takeout to Lidarr v0.7.1
 
 ## Launch (Windows)
 
@@ -48,10 +48,14 @@ Closing the Edge app window asks the localhost service to exit. A heartbeat fall
 Library comparison sections are **YouTube Music Data > Found**, then **YouTube Music vs. Lidarr > Pending to Be Added to Lidarr / Already in Lidarr / Needs Review**. Needs Review numbers represent the current worker's unresolved identifications, **not a guaranteed below-10% matching rate**. In particular, no exact-release verification is available to classify songs for download. A count above 10% cannot be truthfully reduced by relabeling unsafe matches.
 
 
-## v0.7.0 multi-pass evidence engine (experimental)
+## v0.7.1 multi-pass evidence engine (experimental)
 
 The verification worker now performs (1) normalized source artist grouping, (2) MusicBrainz recording searches using both artist + title and a title-only fallback, (3) recorded artist-credit and album/release corroboration, (4) aggregation of distinct recording evidence across songs for each artist, and (5) reuse of verified artist identities for other songs while preserving uncertainty about exact recording versions. Artist decisions require one strong, album-corroborated unambiguous recording or multiple corroborating recordings; conflicting MusicBrainz artist IDs are not silently merged. All results include evidence and candidate IDs in local verification-status.json. Only verified artist candidates can appear under Pending to Be Added; importing still requires the later permission workflow.
 
 MusicBrainz API failures and per-song processing exceptions are classified as **unchecked**, not automatically manual review. Checkpoints and cached responses are reused for the same version; previous algorithm decisions are not trusted without re-verification. The displayed Needs Review song count means *unresolved recording identity*, not a count of music proven missing or ready to download.
 
 **Remaining gaps:** MusicBrainz artist-alias endpoint verification, cross-catalog services (e.g. iTunes/Deezer), precise YouTube content metadata, release-group/version mapping, and end-to-end live tests are not implemented in this build. The goal is lower manual review with sound evidence, not a fabricated <10% figure. The application is read-only throughout verification.
+
+
+## Fresh MusicBrainz verification (v0.7.1)
+Each scan requests fresh MusicBrainz data. No prior response cache or automatic matching decisions are reused. Temporary progress data is cleaned up when the application closes. The worker reports live request counts, temporary lookup errors, and processed records. A restart begins at the first source record. No Lidarr modifications are enabled.

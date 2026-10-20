@@ -11,7 +11,7 @@ $script:serverLog=Join-Path $root 'startup-errors.log'
 function Log-Server([string]$message){try{Add-Content -LiteralPath $script:serverLog -Value ('['+(Get-Date).ToString('s')+'] '+$message) -Encoding UTF8}catch{}}
 $script:data=[ordered]@{archive=$InputPath;analyzing=$false;analysisError='';summary=$null;tracks=@();report='';lidarrUrl='http://127.0.0.1:8686';lidarrConnected=$false;lidarrArtists=@();lidarrKey='';comparison=$null;verification=$null;eventLog=@()}
 $script:shutdownRequested=$false;$script:clientEverConnected=$false;$script:lastHeartbeat=Get-Date
-$script:verifyChild=$null;$script:verifyStateFile='';$script:child=$null;$script:outLog='';$script:errLog='';$script:analysisStart=Get-Date;$script:runRoot=''
+$script:verifyChild=$null;$script:verifyStateFile='';$script:verifyTempRoot='';$script:child=$null;$script:outLog='';$script:errLog='';$script:analysisStart=Get-Date;$script:runRoot=''
 function Send-Json($ctx,$obj,[int]$code=200){
   $json=ConvertTo-Json -InputObject $obj -Depth 12 -Compress
   $bytes=[Text.Encoding]::UTF8.GetBytes($json)
@@ -162,8 +162,8 @@ function Handle($ctx){
       $exitCode=$null
       if($script:verifyChild -and -not $running){$exitCode=$script:verifyChild.ExitCode}
       $errorTail=''
-      $log=Join-Path (Join-Path $root 'musicbrainz-verification') 'cache\worker-errors.log'
-      if(Test-Path -LiteralPath $log){$errorTail=((Get-Content -LiteralPath $log -Tail 2 -ErrorAction SilentlyContinue) -join ' | ')}
+      $log=if($script:verifyTempRoot){Join-Path $script:verifyTempRoot 'worker-errors.log'}else{''}
+      if($log -and (Test-Path -LiteralPath $log)){$errorTail=((Get-Content -LiteralPath $log -Tail 2 -ErrorAction SilentlyContinue) -join ' | ')}
       Send-Json $ctx @{started=([bool]$script:verifyStateFile);running=$running;status=$status;exitCode=$exitCode;errorDetail=$errorTail};return
     }
     if($path -eq '/api/verify/start'){
@@ -172,15 +172,17 @@ function Handle($ctx){
       if($script:verifyChild){$script:verifyChild.Refresh();if(-not $script:verifyChild.HasExited){Send-Json $ctx @{started=$true;running=$true};return}}
       $csv=Join-Path $script:data.report 'tracks.csv'
       if(-not(Test-Path -LiteralPath $csv)){throw 'The Takeout tracks.csv report is missing.'}
-      $verifyRoot=Join-Path $root 'musicbrainz-verification'
-      [IO.Directory]::CreateDirectory($verifyRoot)|Out-Null
-      $artistJson=Join-Path $verifyRoot 'lidarr-artists.json'
-      # Only names and public MusicBrainz IDs; never persist API key.
+      # New, isolated temporary directory every run; never load a previous result or cache.
+      if($script:verifyTempRoot -and (Test-Path -LiteralPath $script:verifyTempRoot)){
+        try{Remove-Item -LiteralPath $script:verifyTempRoot -Recurse -Force -ErrorAction Stop}catch{Log-Server ('Previous temporary directory cleanup: '+$_.Exception.Message)}
+      }
+      $script:verifyTempRoot=Join-Path ([IO.Path]::GetTempPath()) ('YtmLidarrVerify-'+[guid]::NewGuid().ToString('N'))
+      [IO.Directory]::CreateDirectory($script:verifyTempRoot)|Out-Null
+      $artistJson=Join-Path $script:verifyTempRoot 'lidarr-artists.json'
       @($script:data.lidarrArtists|ForEach-Object {@{artistName=$_.artistName;foreignArtistId=$_.foreignArtistId}})|ConvertTo-Json -Depth 5|Set-Content -LiteralPath $artistJson -Encoding UTF8
-      $script:verifyStateFile=Join-Path $verifyRoot 'verification-status.json'
-      # Keep prior status to resume after an interrupted worker run.
+      $script:verifyStateFile=Join-Path $script:verifyTempRoot 'live-progress.json'
       $worker=Join-Path $PSScriptRoot 'MusicBrainz-Verify.ps1'
-      $argsList=@('-NoProfile','-ExecutionPolicy','Bypass','-File',$worker,'-TracksCsv',$csv,'-ArtistsJson',$artistJson,'-CacheRoot',(Join-Path $verifyRoot 'cache'),'-StatusFile',$script:verifyStateFile)
+      $argsList=@('-NoProfile','-ExecutionPolicy','Bypass','-File',$worker,'-TracksCsv',$csv,'-ArtistsJson',$artistJson,'-CacheRoot',$script:verifyTempRoot,'-StatusFile',$script:verifyStateFile)
       $script:verifyChild=Start-Process -FilePath (Join-Path $PSHOME 'powershell.exe') -ArgumentList ($argsList|ForEach-Object {'"'+($_ -replace '"','')+'"'}) -PassThru -WindowStyle Hidden
       Log-Server ('MusicBrainz verification started for '+$script:data.tracks.Count+' songs')
       Send-Json $ctx @{started=$true;running=$true};return
@@ -266,7 +268,7 @@ $edgePaths=@("$env:ProgramFiles (x86)\Microsoft\Edge\Application\msedge.exe","$e
 $edge=$edgePaths|Where-Object{Test-Path -LiteralPath $_}|Select-Object -First 1
 if($edge){Start-Process -FilePath $edge -ArgumentList @('--app='+$url,'--window-size=1280,900') | Out-Null}
 else{Start-Process $url | Out-Null}
-Write-Host ('YouTube Music to Lidarr v0.7.0 UI running at '+$url)
+Write-Host ('YouTube Music to Lidarr v0.7.1 UI running at '+$url)
 Write-Host 'Keep this PowerShell process open while using the app. Press Ctrl+C to stop.'
 try {
   while($listener.IsListening){
@@ -285,5 +287,6 @@ try {
  }
  try{$listener.Stop()}catch{}
  try{$listener.Close()}catch{}
+ if($script:verifyTempRoot -and (Test-Path -LiteralPath $script:verifyTempRoot)){try{Remove-Item -LiteralPath $script:verifyTempRoot -Recurse -Force -ErrorAction Stop}catch{Log-Server ('Temporary verification cleanup: '+$_.Exception.Message)}}
  Log-Server 'Listener closed'
 }
