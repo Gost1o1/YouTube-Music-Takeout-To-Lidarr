@@ -1,6 +1,9 @@
-# UNFINISHED EXPERIMENTAL PROJECT — USE WITH EXTREME CAUTION.
+# YouTube Music Takeout To Lidarr
 
-This project has not been finalized and is in its very early stages of development. It is not ready for normal use or production installation.
+> [!CAUTION]
+> # UNFINISHED EXPERIMENTAL PROJECT — USE WITH EXTREME CAUTION.
+> 
+> This project has not been finalized and is in its very early stages of development. It is not  ready for normal use or production installation.
 
 # YouTube Music Takeout to Lidarr — v0.8.7 source
 
