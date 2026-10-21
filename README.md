@@ -1,3 +1,7 @@
+# UNFINISHED EXPERIMENTAL PROJECT — USE WITH EXTREME CAUTION.
+
+This project has not been finalized and is in its very early stages of development. It is not ready for normal use or production installation.
+
 # YouTube Music Takeout to Lidarr — v0.8.7 source
 
 Windows x64, .NET 8. This package is complete **source**, not a ready-to-run executable. The original ten-step wizard remains, now with a Gost1o1-inspired forest/neon-green palette and centered progress/ETA details. MusicBrainz verification is fresh per run. No Lidarr write operations are enabled yet.
