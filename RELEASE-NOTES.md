@@ -1,16 +1,9 @@
-# v0.8.5 — Independent artist/song confidence audit
+# v0.8.7 — branded progress and evidence refinement (source-only)
 
-- Preserves the functioning read-only .NET Takeout, Lidarr, and 100-recording-batch MusicBrainz verifier from v0.8.4.
-- Adds **separate** confidence outcomes for source artists and source recordings.
-- Audits all automatic matches using recorded title, credits, album and multi-version evidence; declines to call multiple-version recordings high-confidence without an album match.
-- Counts distinct source titles supporting each artist identity; three distinct corroborating songs are required for a high-confidence artist classification.
-- Produces downloadable, per-recording and per-artist CSVs with named source songs and recorded evidence.
-- Separately labels insufficient evidence and conflicting artist IDs. Does not invent MusicBrainz-wide song totals or extra catalog items; catalog coverage remains partial.
-- Read-only; no Lidarr modifications, artist additions, searches, or downloads.
+- Gost1o1-inspired green palette applied through CSS overrides without replacing the wizard UI.
+- Elapsed time, throughput, estimated remaining time, and active verification phase displayed below progress bars.
+- More explicit evidence for whether an exact album distinguishes one retrieved recording version.
+- Artist-identity audit no longer requires every recording version for that artist to be high-confidence before independent exact song corroboration can count.
+- Expanded CSV evidence and CI build triggers for Audit.cs/Verification.cs.
 
-## Future work
-
-1. Optional paginated MusicBrainz artist-catalog browse with full/partial coverage and exact song totals and name lists.
-2. More alias/transliteration/featured-artist and version-specific searches to reduce remaining unresolved cases safely.
-3. Manual-review and explicit opt-in import stages.
-4. Build the .NET project on Windows and run validation, including Defender checks.
+**Not compiled or live-tested here.** ETA is approximate, especially during second pass and retries. The source still needs a Windows build and MusicBrainz regression verification; no Lidarr writes or automatic deletion.

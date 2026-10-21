@@ -16,6 +16,7 @@ sealed partial class DesktopServer
     {
         public int Row { get; set; }
         public string Artist { get; set; } = "";
+        public string AllArtistCredits { get; set; } = "";
         public string Song { get; set; } = "";
         public string Album { get; set; } = "";
         public string YouTubeUrl { get; set; } = "";
@@ -29,6 +30,7 @@ sealed partial class DesktopServer
         public bool AlbumMatch { get; set; }
         public bool CrossSongSupport { get; set; }
         public bool MultipleRecordingVersions { get; set; }
+        public bool AlbumIdentifiesVersion { get; set; }
         public string Alternatives { get; set; } = "";
     }
     sealed class ArtistAudit
@@ -60,14 +62,14 @@ sealed partial class DesktopServer
             var t = source[i]; var r = results[i];
             // A MusicBrainz search score is a ranking signal, not a calibrated confidence probability.
             var strong = r is not null && r.Verified && r.ExactTitle && r.ExactArtist &&
-                (!r.MultipleRecordingVersions || r.AlbumMatch);
+                (!r.MultipleRecordingVersions || r.AlbumIdentifiesVersion);
             var why = r is null || !r.RequestSucceeded ? "MusicBrainz request unsuccessful" :
                 !r.Verified ? r.Reason : !r.ExactTitle ? "Title differs after normalization" :
                 !r.ExactArtist ? "Artist supported only by cross-song evidence" :
-                r.MultipleRecordingVersions && !r.AlbumMatch ? "Multiple recordings for same artist; exact version unproven" :
+                r.MultipleRecordingVersions && !r.AlbumIdentifiesVersion ? "Multiple recordings for same artist; source album does not uniquely identify recording version" :
                 "Exact title and artist; recording version supported";
             audit.Songs.Add(new SongAudit {
-                Row = i + 1, Artist = t.Artist, Song = t.Song, Album = t.Album, YouTubeUrl = t.YouTubeUrl,
+                Row = i + 1, Artist = t.Artist, AllArtistCredits = string.Join(" | ", t.ArtistCredits), Song = t.Song, Album = t.Album, YouTubeUrl = t.YouTubeUrl,
                 ArtistId = r?.ArtistId ?? "", RecordingId = r?.RecordingId ?? "",
                 Status = strong ? "high" : r is not null && r.Verified ? "artist-supported/version-review" :
                     r is null || !r.RequestSucceeded ? "lookup-failed" : r.Ambiguous ? "ambiguous" : "unmatched",
@@ -75,6 +77,7 @@ sealed partial class DesktopServer
                 ExactTitle = r?.ExactTitle ?? false, ExactArtist = r?.ExactArtist ?? false,
                 AlbumMatch = r?.AlbumMatch ?? false, CrossSongSupport = r?.CrossSongSupport ?? false,
                 MultipleRecordingVersions = r?.MultipleRecordingVersions ?? false,
+                AlbumIdentifiesVersion = r?.AlbumIdentifiesVersion ?? false,
                 Alternatives = string.Join("; ", r?.CandidateArtistIds ?? new List<string>())
             });
         }
@@ -87,16 +90,26 @@ sealed partial class DesktopServer
             var best = supportedIds.FirstOrDefault();
             int independentSongs = best?.Select(s => Normalize(s.Song)).Distinct().Count() ?? 0;
             int conflicting = supportedIds.Skip(1).Sum(g => g.Count());
-            // Three distinct corroborating songs are strong artist evidence; one overlapping title alone is not.
-            bool high = best != null && independentSongs >= 3 && conflicting == 0;
+            // Distinguish lack of cross-song quantity from a genuine identity contradiction.
+            // One song alone is sufficient for high artist confidence only when the exact
+            // candidate ID is independently corroborated by the existing Lidarr library.
+            // Artist identity can be supported even if an unrelated song version still
+            // requires attention. Never accept conflicting MusicBrainz artist IDs.
+            int exactSupportingTitles = best?.Where(s => s.ExactArtist && s.ExactTitle)
+                .Select(s => Normalize(s.Song)).Distinct().Count() ?? 0;
+            bool hasExactArtistEvidence = exactSupportingTitles > 0;
+            bool lidarrIdCorroboration = best != null && knownLidarrIds.Contains(best.Key);
+            bool high = best != null && conflicting == 0 && hasExactArtistEvidence &&
+                (exactSupportingTitles >= 2 || (exactSupportingTitles == 1 && lidarrIdCorroboration));
             var supportedTitles = verified.Select(s => s.Song).Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(x => x).ToArray();
             var sourceOnly = sourceSongs.Where(x => !supportedTitles.Contains(x, StringComparer.OrdinalIgnoreCase)).ToArray();
             audit.Artists.Add(new ArtistAudit {
                 SourceName = group.Key, ArtistId = best?.Key ?? "", Status = high ? "high" : "needs-review",
-                Reason = high ? "At least three distinct source song titles independently support one MusicBrainz artist ID" :
+                Reason = high ? (independentSongs >= 2 ? "Two or more exact, consistent song credits support artist ID; other song versions assessed separately" : "Exact recording credit and existing Lidarr artist MBID corroborate identity") :
                     conflicting > 0 ? "Conflicting MusicBrainz artist IDs across source songs" :
                     best is null ? "No confidently identified artist ID" :
-                    $"Only {independentSongs} distinct song title(s) support an artist ID; need at least three for high confidence",
+                    !hasExactArtistEvidence ? "No exact artist-credit and title corroboration" :
+                    "Single-song artist: exact recording match supports this identity, but independent artist corroboration is still missing",
                 SourceSongs = sourceSongs.Length, VerifiedSongs = supportedTitles.Length,
                 UnresolvedSongs = sourceOnly.Length, ExactSupportedTitles = supportedTitles.Length,
                 AlreadyInLidarr = (best is not null && knownLidarrIds.Contains(best.Key)) || knownLidarrNames.Contains(Normalize(group.Key)),
@@ -118,8 +131,8 @@ sealed partial class DesktopServer
         }
         else
         {
-            sb.Append(CsvLine("Source row", "YouTube artist", "YouTube song", "YouTube album", "YouTube link", "MusicBrainz artist ID", "MusicBrainz recording ID", "Confidence", "Evidence/remaining issue", "MB search score (NOT confidence probability)", "Exact title", "Artist credit agrees", "Album agrees", "Cross-song support", "Multiple recording versions", "Alternate artist IDs"));
-            foreach (var a in audit.Songs) sb.Append(CsvLine(a.Row,a.Artist,a.Song,a.Album,a.YouTubeUrl,a.ArtistId,a.RecordingId,a.Status,a.Reason,a.EvidenceScore,a.ExactTitle,a.ExactArtist,a.AlbumMatch,a.CrossSongSupport,a.MultipleRecordingVersions,a.Alternatives));
+            sb.Append(CsvLine("Source row", "YouTube artist", "All Takeout artist credits", "YouTube song", "YouTube album", "YouTube link", "MusicBrainz artist ID", "MusicBrainz recording ID", "Confidence", "Evidence/remaining issue", "MB search score (NOT confidence probability)", "Exact title", "Artist credit agrees", "Album agrees", "Cross-song support", "Multiple recording versions", "Album uniquely distinguishes version among retrieved candidates", "Alternate artist IDs"));
+            foreach (var a in audit.Songs) sb.Append(CsvLine(a.Row,a.Artist,a.AllArtistCredits,a.Song,a.Album,a.YouTubeUrl,a.ArtistId,a.RecordingId,a.Status,a.Reason,a.EvidenceScore,a.ExactTitle,a.ExactArtist,a.AlbumMatch,a.CrossSongSupport,a.MultipleRecordingVersions,a.AlbumIdentifiesVersion,a.Alternatives));
         }
         return new UTF8Encoding(true).GetBytes(sb.ToString());
     }

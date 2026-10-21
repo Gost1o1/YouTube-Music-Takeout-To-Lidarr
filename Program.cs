@@ -41,7 +41,7 @@ sealed partial class DesktopServer
         listener = server;
         server.Prefixes.Add(address);
         server.Start();
-        Console.WriteLine("YouTube Music to Lidarr — .NET v0.8.5 (confidence audit)");
+        Console.WriteLine("YouTube Music to Lidarr — .NET v0.8.6 (artist-credit matching)");
         Console.WriteLine("No PowerShell scripts are run. No changes to Windows execution policy.");
         Console.WriteLine("Read-only: import, inspect, and Lidarr inventory only. No downloads or imports.");
         Console.WriteLine("Local address: " + address);
@@ -153,7 +153,7 @@ sealed partial class DesktopServer
                         if (verification.Running) throw new InvalidOperationException("Verification is already running.");
                         verificationCancellation?.Dispose();
                         verificationCancellation = new CancellationTokenSource();
-                        latestAudit = null; verification = new VerifyState { Started = true, Running = true, Total = source.Length, TotalArtists = source.Select(x => x.Artist.Trim()).Where(x => x.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase).Count(), Phase = "Starting fresh MusicBrainz lookups..." };
+                        latestAudit = null; verification = new VerifyState { Started = true, Running = true, StartedAt = DateTimeOffset.UtcNow, Total = source.Length, TotalArtists = source.Select(x => x.Artist.Trim()).Where(x => x.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase).Count(), Phase = "Starting fresh MusicBrainz lookups..." };
                         var ct = verificationCancellation.Token;
                         _ = Task.Run(() => VerifyTracksAsync(source, ct));
                     }
@@ -172,7 +172,7 @@ sealed partial class DesktopServer
                 case "/api/verify/status":
                     VerifyState snapshot;
                     lock (verificationGate) snapshot = verification.Copy();
-                    await Respond(ctx, 200, new { started = snapshot.Started, running = snapshot.Running, completed = snapshot.Completed, failed = snapshot.Failed, cancelled = snapshot.Cancelled, checkedCount = snapshot.Checked, total = snapshot.Total, totalArtists = snapshot.TotalArtists, resolvedArtists = snapshot.ResolvedArtists, verifiedRecordings = snapshot.VerifiedRecordings, ambiguous = snapshot.Ambiguous, unmatched = snapshot.Unmatched, lookupFailures = snapshot.LookupFailures, requests = snapshot.Requests, secondPassDone = snapshot.ProcessedSecondPass, secondPassTotal = snapshot.SecondPassTotal, batchesDone = snapshot.BatchesCompleted, batchesTotal = snapshot.TotalBatches, retries = snapshot.Retries, httpErrors = snapshot.HttpErrors, artistHighConfidence = snapshot.ArtistHighConfidence, artistNeedsReview = snapshot.ArtistNeedsReview, songHighConfidence = snapshot.SongHighConfidence, songNeedsReview = snapshot.SongNeedsReview, phase = snapshot.Phase, errorDetail = snapshot.Error }); return;
+                    await Respond(ctx, 200, new { started = snapshot.Started, running = snapshot.Running, elapsedSeconds = snapshot.StartedAt == DateTimeOffset.MinValue ? 0 : Math.Max(0, (int)(DateTimeOffset.UtcNow - snapshot.StartedAt).TotalSeconds), completed = snapshot.Completed, failed = snapshot.Failed, cancelled = snapshot.Cancelled, checkedCount = snapshot.Checked, total = snapshot.Total, totalArtists = snapshot.TotalArtists, resolvedArtists = snapshot.ResolvedArtists, verifiedRecordings = snapshot.VerifiedRecordings, ambiguous = snapshot.Ambiguous, unmatched = snapshot.Unmatched, lookupFailures = snapshot.LookupFailures, requests = snapshot.Requests, firstPassSeconds = snapshot.FirstPassSeconds, secondPassDone = snapshot.ProcessedSecondPass, secondPassTotal = snapshot.SecondPassTotal, batchesDone = snapshot.BatchesCompleted, batchesTotal = snapshot.TotalBatches, retries = snapshot.Retries, httpErrors = snapshot.HttpErrors, artistHighConfidence = snapshot.ArtistHighConfidence, artistNeedsReview = snapshot.ArtistNeedsReview, songHighConfidence = snapshot.SongHighConfidence, songNeedsReview = snapshot.SongNeedsReview, phase = snapshot.Phase, errorDetail = snapshot.Error }); return;
                 default: await Respond(ctx, 404, new { error = "Unknown API action." }); return;
             }
         }
@@ -202,6 +202,10 @@ sealed partial class DesktopServer
         var header = CsvRow(reader) ?? throw new InvalidOperationException("Empty music CSV.");
         int title = Array.FindIndex(header, x => x.Trim().Equals("Song Title", StringComparison.OrdinalIgnoreCase));
         int artist = Array.FindIndex(header, x => x.Trim().Equals("Artist Name 1", StringComparison.OrdinalIgnoreCase));
+        var artistColumns = header.Select((name, index) => (name: name.Trim(), index))
+            .Where(x => Regex.IsMatch(x.name, @"^Artist Name \d+$", RegexOptions.IgnoreCase))
+            .OrderBy(x => int.Parse(Regex.Match(x.name, @"\d+$").Value))
+            .Select(x => x.index).ToArray();
         int video = Array.FindIndex(header, x => x.Trim().Equals("Video ID", StringComparison.OrdinalIgnoreCase));
         int album = Array.FindIndex(header, x => x.Trim().Equals("Album Title", StringComparison.OrdinalIgnoreCase));
         if (title < 0 || artist < 0) throw new InvalidOperationException("Unrecognized song CSV headers.");
@@ -212,7 +216,9 @@ sealed partial class DesktopServer
             var song = Get(title); if (song.Length == 0) continue;
             var id = Get(video);
             var url = Regex.IsMatch(id, "^[A-Za-z0-9_-]{11}$") ? "https://www.youtube.com/watch?v=" + id : "";
-            result.Add(new Track(Get(artist), song, url, Get(album)));
+            var credits = artistColumns.Select(Get).Where(x => x.Length > 0)
+                .Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+            result.Add(new Track(Get(artist), song, url, Get(album), credits));
             if (result.Count > 250_000) throw new InvalidOperationException("Too many songs in archive.");
         }
         if (result.Count == 0) throw new InvalidOperationException("No songs found.");
@@ -247,6 +253,6 @@ sealed partial class DesktopServer
         ctx.Response.Close();
     }
     void Log(string message) { try { File.AppendAllText(Path.Combine(logDir, "desktop.log"), $"[{DateTimeOffset.Now:O}] {message}{Environment.NewLine}"); } catch { } }
-    record Track(string Artist, string Song, string YouTubeUrl, string Album);
+    record Track(string Artist, string Song, string YouTubeUrl, string Album, string[] ArtistCredits);
     record LidarrArtist(string artistName, string foreignArtistId);
 }

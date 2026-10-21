@@ -10,8 +10,9 @@ sealed partial class DesktopServer
     {
         public bool Started, Running, Completed, Failed, Cancelled;
         public int Checked, Total, TotalArtists, ResolvedArtists, VerifiedRecordings, Ambiguous, Unmatched, LookupFailures, Requests;
-        public int ProcessedSecondPass, SecondPassTotal, BatchesCompleted, TotalBatches, Retries, HttpErrors;
+        public int FirstPassSeconds, ProcessedSecondPass, SecondPassTotal, BatchesCompleted, TotalBatches, Retries, HttpErrors;
         public int AuditedArtists, ArtistHighConfidence, ArtistNeedsReview, SongHighConfidence, SongNeedsReview;
+        public DateTimeOffset StartedAt = DateTimeOffset.MinValue;
         public string Phase = "Not started", Error = "";
         public VerifyState Copy() => (VerifyState)MemberwiseClone();
     }
@@ -21,7 +22,7 @@ sealed partial class DesktopServer
         public string ArtistId = "", RecordingId = "", Reason = "";
         public List<string> CandidateArtistIds = new(), CandidateRecordings = new(), CandidateAlbums = new(), ObservedCreditNames = new();
         public int ArtistCandidateCount, RecordingCandidateCount;
-        public bool ExactTitle, ExactArtist, AlbumMatch, CrossSongSupport, MultipleRecordingVersions;
+        public bool ExactTitle, ExactArtist, AlbumMatch, CrossSongSupport, MultipleRecordingVersions, AlbumIdentifiesVersion;
         public int Confidence;
     }
     sealed class Candidate
@@ -84,7 +85,7 @@ sealed partial class DesktopServer
                 if (ranked.Length > 0 && ranked[0].Value >= 100 && (ranked.Length == 1 || ranked[0].Value >= ranked[1].Value * 2))
                     artistIds[artist] = ranked[0].Key;
             }
-            lock (verificationGate) { verification.SecondPassTotal = unresolved.Count; verification.Phase = $"Starting artist-corroboration pass for {unresolved.Count} unresolved recordings"; }
+            lock (verificationGate) { verification.FirstPassSeconds = (int)(DateTimeOffset.UtcNow - verification.StartedAt).TotalSeconds; verification.SecondPassTotal = unresolved.Count; verification.Phase = $"Starting artist-corroboration pass for {unresolved.Count} unresolved recordings"; }
             // A new HttpClient per batch renews the underlying connections. All MusicBrainz calls still share one pacer.
             int secondBatches = (unresolved.Count + batchSize - 1) / batchSize;
             for (int start = 0; start < unresolved.Count; start += batchSize)
@@ -161,7 +162,7 @@ sealed partial class DesktopServer
     static HttpClient CreateMbClient()
     {
         var client = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = TimeSpan.FromSeconds(35) };
-        client.DefaultRequestHeaders.UserAgent.ParseAdd("YouTubeMusicTakeoutToLidarr/0.8.4 (https://github.com/Gost1o1/YouTube-Music-Takeout-To-Lidarr)");
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("YouTubeMusicTakeoutToLidarr/0.8.7 (https://github.com/Gost1o1/YouTube-Music-Takeout-To-Lidarr)");
         client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
         return client;
     }
@@ -169,11 +170,18 @@ sealed partial class DesktopServer
     {
         var title = track.Song.Trim();
         var artist = track.Artist.Trim();
-        string artistSegment = artist.Split('&', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? artist;
+        string artistSegment = artist; // Never split genuine band names on ampersands.
         var firstQuery = $"recording:\"{EscapeMb(title)}\" AND artist:\"{EscapeMb(artistSegment)}\"";
         var broadQuery = $"recording:\"{EscapeMb(title)}\"";
         // First pass: artist-aware query, with fallback to title only. Second pass: wider title results, supported by cross-song evidence.
-        string[] searches = secondPass ? new[] { broadQuery } : new[] { firstQuery, broadQuery };
+        // Use the complete structured Takeout credit list only for targeted follow-up searches.
+        // The primary credit remains the artist identity; collaborators must not replace it.
+        var searches = secondPass
+            ? new[] { firstQuery, broadQuery }
+                .Concat(track.ArtistCredits.Skip(1).Take(3).Select(a => $"recording:\"{EscapeMb(title)}\" AND artist:\"{EscapeMb(a)}\""))
+                .Concat(track.Album.Length > 0 ? new[] { $"recording:\"{EscapeMb(title)}\" AND release:\"{EscapeMb(track.Album)}\"" } : Array.Empty<string>())
+                .Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
+            : new[] { firstQuery, broadQuery };
         bool anySuccess = false;
         var candidates = new Dictionary<string, Candidate>(StringComparer.OrdinalIgnoreCase);
         foreach (var query in searches)
@@ -211,6 +219,15 @@ sealed partial class DesktopServer
             .Select(g => new { Id = g.Key, Score = g.Max(x => x.score), Count = g.Count(), Best = g.OrderByDescending(x => x.score).First() })
             .OrderByDescending(g => g.Score).ToArray();
         var best = groups[0];
+        // A source album only distinguishes recording versions when exactly one
+        // recording for the chosen artist has that exact normalized release title.
+        // Search-result release lists may be incomplete: this is positive evidence,
+        // not proof that the MusicBrainz catalog has been fully enumerated.
+        var matchingAlbumVersions = track.Album.Length == 0 ? Array.Empty<string>() :
+            sorted.Where(x => x.id.Equals(best.Id, StringComparison.OrdinalIgnoreCase) &&
+                x.candidate.Albums.Any(a => Normalize(a) == Normalize(track.Album)))
+                .Select(x => x.candidate.RecordingId).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        bool albumIdentifiesVersion = matchingAlbumVersions.Length == 1 && best.Best.candidate.RecordingId == matchingAlbumVersions[0];
         bool uniqueArtist = groups.Length == 1 || best.Score >= groups[1].Score + 20;
         bool confident = best.Score >= 105 && uniqueArtist;
         return new MatchResult
@@ -222,6 +239,7 @@ sealed partial class DesktopServer
             CrossSongSupport = corroboratedArtistId != null && best.Id == corroboratedArtistId,
             AlbumMatch = track.Album.Length > 0 && best.Best.candidate.Albums.Any(a => Normalize(a) == Normalize(track.Album)),
             MultipleRecordingVersions = best.Count > 1,
+            AlbumIdentifiesVersion = albumIdentifiesVersion,
             ArtistCandidateCount = groups.Length, RecordingCandidateCount = sorted.Length,
             CandidateArtistIds = groups.Take(8).Select(g => g.Id).ToList(),
             CandidateRecordings = sorted.Take(8).Select(g => g.candidate.RecordingId).ToList(),
@@ -299,8 +317,8 @@ sealed partial class DesktopServer
         var a = Normalize(takeout); var b = Normalize(credit);
         if (a.Length == 0 || b.Length == 0) return false;
         if (a == b) return true;
-        return takeout.Split('&', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Any(part => Normalize(part) == b);
+        // Never split a literal artist name (e.g. a duo or band containing '&').
+        return false;
     }
     static void AddEvidence(Dictionary<string, Dictionary<string, int>> evidence, string artist, string id, int confidence)
     {
