@@ -4,4 +4,7 @@ publish/
 *.user
 *.log
 *.zip
-*-audit.csv
+*.csv
+*.key
+*.pfx
+*.p12
