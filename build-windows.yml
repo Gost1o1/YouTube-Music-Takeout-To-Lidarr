@@ -1,0 +1,79 @@
+name: Build and smoke-test Windows .NET
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'Program.cs'
+      - 'Verification.cs'
+      - 'Audit.cs'
+      - 'SupplementalEvidence.cs'
+      - 'IdentifierRecovery.cs'
+      - 'CatalogCorroboration.cs'
+      - 'ReleaseDiscoveryV915.cs'
+      - 'IsrcTitleReconciliation.cs'
+      - 'MigrationReadiness.cs'
+      - 'LidarrInventory.cs'
+      - 'ReleasePlanner.cs'
+      - 'ApprovalQueue.cs'
+      - 'GuidedReviewV917.cs'
+      - 'ManualFallbackV912.cs'
+      - 'ReviewDetailsV920.cs'
+      - 'GitHubStarV918.cs'
+      - 'UnifiedPipelineV919.cs'
+      - 'YouTubeMusicToLidarr.csproj'
+      - 'AppUI/**'
+      - '.github/workflows/build-windows.yml'
+  pull_request:
+    paths:
+      - 'Program.cs'
+      - 'Verification.cs'
+      - 'Audit.cs'
+      - 'SupplementalEvidence.cs'
+      - 'IdentifierRecovery.cs'
+      - 'CatalogCorroboration.cs'
+      - 'ReleaseDiscoveryV915.cs'
+      - 'IsrcTitleReconciliation.cs'
+      - 'MigrationReadiness.cs'
+      - 'LidarrInventory.cs'
+      - 'ReleasePlanner.cs'
+      - 'ApprovalQueue.cs'
+      - 'GuidedReviewV917.cs'
+      - 'ManualFallbackV912.cs'
+      - 'ReviewDetailsV920.cs'
+      - 'GitHubStarV918.cs'
+      - 'UnifiedPipelineV919.cs'
+      - 'YouTubeMusicToLidarr.csproj'
+      - 'AppUI/**'
+jobs:
+  build:
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Compile project
+        run: dotnet build YouTubeMusicToLidarr.csproj -c Release -r win-x64
+      - name: Run offline provider and import tests
+        run: dotnet run --project YouTubeMusicToLidarr.csproj -c Release -r win-x64 --no-build -- --self-test
+      - name: Verify review UI regression tests
+        run: |
+          node --check AppUI/flow918.js
+          node tools/offline_v09113_manual_auto.js
+          node tools/offline_v09112_review_prefetch.js
+          node tools/offline_v09115_preflight_restore.js
+          node tools/offline_v091152_migration_reconciliation.js
+          node tools/offline_v091153_song_fallback.js
+          node tools/offline_v0918_ui_smoke.js
+          node tools/offline_v0921_navigation_resume.js
+      - name: Publish executable
+        run: dotnet publish YouTubeMusicToLidarr.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o publish
+      - name: Hash executable
+        shell: pwsh
+        run: Get-FileHash publish/YouTubeMusicToLidarr.exe -Algorithm SHA256 | Format-List
+      - uses: actions/upload-artifact@v4
+        with:
+          name: YouTubeMusicToLidarr-v0.9.1.15.3-win-x64
+          path: publish/**
