@@ -1,12 +1,12 @@
-/* v0.9.1.15.3 song source-only fallback and reliable manual continuation. */
+/* v0.9.1.15.4 stable review navigation and exact-title source filing. */
 (() => {
  'use strict';
- const F={active:false,page:'manual',reviewKind:'artist',reviewIndex:{artist:0,song:0},choice:{},selected:new Set(),tab:'add',stageItems:[],job:[],completed:0,failed:false,gh:null,ghPoll:null,error:'',working:false,media:{},mediaLoading:new Set(),mediaPromises:new Map(),bundlePromises:new Map(),manualEntries:[],autoSaving:new Set(),autoAttempted:new Set(),autoFailed:new Set(),classifying:false,classifyStatus:null,classifyJob:null,editingEntry:null,youtubePlayer:null,audio:null,audioTimer:null};
+ const F={active:false,page:'manual',reviewKind:'artist',reviewIndex:{artist:0,song:0},reviewOrder:{artist:[],song:[]},reviewHistory:{artist:[],song:[]},choice:{},selected:new Set(),tab:'add',stageItems:[],job:[],completed:0,failed:false,gh:null,ghPoll:null,error:'',working:false,media:{},mediaLoading:new Set(),mediaPromises:new Map(),bundlePromises:new Map(),manualEntries:[],autoSaving:new Set(),autoAttempted:new Set(),autoFailed:new Set(),classifying:false,classifyStatus:null,classifyJob:null,editingEntry:null,youtubePlayer:null,audio:null,audioTimer:null};
  const root=()=>document.getElementById('flow918');
  const E=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
  const num=x=>Number(x||0).toLocaleString();
  const candidates=x=>(x?.candidates||[]).slice(0,12);
- const records=()=>((state.reviewQueue?.items||[]).filter(x=>x.kind===F.reviewKind));
+ const records=()=>recordsFor(F.reviewKind);
  const current=()=>records()[Math.min(F.reviewIndex[F.reviewKind],records().length-1)];
  const key=x=>x?.key||'';
  const initials=s=>String(s||'?').split(/\s+/).slice(0,2).map(a=>a.charAt(0).toUpperCase()).join('')||'?';
@@ -99,18 +99,50 @@
    return p;
  }
  async function refreshManualQueue(){
+    const previous={};
+    for(const kind of ['artist','song']){
+      const list=recordsFor(kind),index=F.reviewIndex[kind];
+      previous[kind]={key:list[index]?.key||'',following:list.slice(index+1).map(x=>x.key),index};
+    }
     const latest=await api('review/queue');
     if(!Array.isArray(latest?.items))throw Error('Unable to reload the manual review queue.');
     state.reviewQueue=latest;
     F.manualEntries=Array.isArray(latest.manualItems)?latest.manualItems:[];
-    for(const kind of ['artist','song'])
-      F.reviewIndex[kind]=Math.min(F.reviewIndex[kind],Math.max(0,recordsFor(kind).length-1));
+    for(const kind of ['artist','song']){
+      const list=recordsFor(kind),prior=previous[kind];
+      let index=list.findIndex(x=>x.key===prior.key);
+      if(index<0)index=list.findIndex(x=>prior.following.includes(x.key));
+      F.reviewIndex[kind]=index>=0?index:Math.min(prior.index,Math.max(0,list.length-1));
+    }
     // No cached choice may silently carry over to a different review row.
     const valid=new Set((latest.items||[]).map(x=>x.key));
     for(const k of Object.keys(F.choice))if(!valid.has(k))delete F.choice[k];
     F.error='';F.render();
  }
- function recordsFor(kind){return (state.reviewQueue?.items||[]).filter(x=>x.kind===kind)}
+ function recordsFor(kind){
+   const rows=(state.reviewQueue?.items||[]).filter(x=>x.kind===kind),order=F.reviewOrder[kind];
+   const known=new Set(order);
+   for(const row of rows)if(!known.has(row.key)){order.push(row.key);known.add(row.key)}
+   const byKey=new Map(rows.map(x=>[x.key,x]));
+   return order.map(k=>byKey.get(k)).filter(Boolean);
+ }
+ function recordReviewVisit(){
+   if(F.page!=='manual'||F.classifying)return;
+   const x=current();if(!x)return;
+   const history=F.reviewHistory[F.reviewKind];
+   if(history[history.length-1]!==x.key)history.push(x.key);
+   if(history.length>1000)history.shift();
+ }
+ function previousReview(){
+   const history=F.reviewHistory[F.reviewKind],here=current()?.key;
+   if(history[history.length-1]===here)history.pop();
+   while(history.length){
+     const previous=history.pop(),i=records().findIndex(x=>x.key===previous);
+     if(i>=0){F.reviewIndex[F.reviewKind]=i;F.render();return}
+   }
+   F.reviewIndex[F.reviewKind]=Math.max(0,F.reviewIndex[F.reviewKind]-1);
+   F.render();
+ }
  // Pre-review classification runs before the artist/song queue is displayed.
  // It handles complete no-candidate songs and conservative artist-name cases.
  // The progress percentage is
@@ -139,7 +171,7 @@
    const pct=total?Math.round(n/total*100):0;
    return `<h1>Preparing Manual Review</h1><section class="fbox"><div class="floadhead"><strong>Checking artist and song metadata</strong><span>${pct}%</span></div>
      <div class="floadbar" role="progressbar" aria-label="Review preparation" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}"><i style="width:${pct}%"></i></div>
-     <div class="muted">${n} of ${total} artist checks completed</div></section>`;
+     <div class="muted">${n} of ${total} metadata checks completed</div></section>`;
  }
  // The server files fully known zero-candidate songs during preflight. A song
  // may also have raw IDs that prove unusable only after its display metadata
@@ -155,6 +187,16 @@
       x.manualOverride||F.choice[x.key]!==undefined)return '';
    const groups=visibleCandidates(x);
    if(groups.length===0)return 'no-usable-candidate';
+   if(groups.length===1){
+     const candidate=groups[0].m;
+     // Catalog title must have come from MusicBrainz, not the source-title
+     // fallback or an unrelated cover-art/audio match.
+     if(candidate.CatalogIdentityConfirmed===true||candidate.catalogIdentityConfirmed===true){
+       const relation=songTitleRelation(x.song,groups[0].display);
+       if(relation==='exact')return 'sole-exact-song-title-unverified';
+       if(relation==='parenthetical')return 'sole-parenthetical-song-title-unverified';
+     }
+   }
    return '';
  }
  function tryAutoSaveUnresolved(x){
@@ -176,11 +218,22 @@
    }else ensureBundle(x);
  }
  function normalizedName(s){return String(s||'').normalize('NFKD').replace(/[\u0300-\u036f]/g,'').replace(/&/g,' and ').toLowerCase().replace(/[^a-z0-9]/g,'')}
+ function songTitleRelation(source,candidate){
+   const a=normalizedName(source),b=normalizedName(candidate);
+   if(!a||!b)return '';
+   if(a===b)return 'exact';
+   const withoutSuffix=s=>String(s||'').replace(/\s*\([^()]{1,80}\)\s*$/,'').trim();
+   const ca=withoutSuffix(source),cb=withoutSuffix(candidate);
+   if(ca!==source&&normalizedName(ca)===b)return 'parenthetical';
+   if(cb!==candidate&&a===normalizedName(cb))return 'parenthetical';
+   return '';
+ }
  function knownName(s){return !!s && !/^(?:-|unknown|\[unknown\]|\[no artist\]|no artist|name unavailable|musicbrainz artist candidate|musicbrainz credited track candidate|lidarr artist candidate|prior artist mbid|isrc recording candidate|prior recording identity|lidarr candidate recording|musicbrainz artist|recording identity)$/i.test(String(s).trim())}
  function visibleCandidates(x){
    const result=[],byIdentity=new Map();
    for(const [i,c] of candidates(x).entries()){
      const m=F.media[mediaKey(x,c.id)]||{};
+     if(String(m.Availability||m.availability||'').toLowerCase().includes('metadata lookup failed'))continue;
      const display=knownName(m.Name||m.name)?(m.Name||m.name):knownName(c.label)?c.label:'';
      const artwork=m.ArtworkUrl||m.artworkUrl||'',preview=m.PreviewUrl||m.previewUrl||'';
      if(!display&&!artwork&&!preview)continue;
@@ -239,9 +292,9 @@
    return missing;
  }
  function noCandidateActions(x,groups,automatic){
-   if(automatic)return '<div class="fsourcewarning"><strong>Saving automatically:</strong> Original song metadata is being preserved for later manual import. No MusicBrainz recording is being verified.</div>';
-   if(groups.length)return '';
+   if(automatic)return '<div class="fsourcewarning"><strong>Saving automatically:</strong> Original song metadata is being preserved for later manual import. A matching title is not proof of the recording or artist identity. No MusicBrainz recording is being verified.</div>';
    if(failedCandidateLookup(x))return '<div class="fsourcewarning">Candidate information could not finish loading. Retry before treating this as a missing match.</div>'+btn('Retry Candidate Lookup','retry-candidate-details')+btn('Enter Metadata Manually','manual-fallback');
+   if(groups.length)return '';
    const missing=missingSourceFields(x);
    if(missing.length)return `<div class="fsourcewarning"><strong>Missing source metadata:</strong> ${E(missing.join(', '))}. Complete what you can, then save to continue reviewing songs.</div>`+btn('Complete Missing Metadata','manual-fallback');
    return '<div class="fsourcewarning">No usable matching candidate. Your original song information can be preserved for manual import.</div>'+btn('Save Metadata Manually','manual-fallback');
@@ -317,9 +370,11 @@
  function completed(){const songCount=F.job.reduce((n,x)=>n+x.safeSongs,0);return `<div class="fbox fcelebrate fcenter">${confetti()}<div class="fcontent"><div class="fcheck">✓</div><h1>Congratulations!</h1><p class="fstatus">Your local import plan is complete.</p><div class="fbar"><i style="width:100%"></i></div><div class="fstatus">100% Complete</div><div class="fsummary two" style="max-width:370px;margin:15px auto"><div class="fnum"><b>${F.job.length}</b><span>Albums</span></div><div class="fnum"><b>${num(songCount)}</b><span>Songs</span></div></div><div class="fbuttons">${btn('Exit Application','exit')}${btn('Learn More About the Developer','about','primary')}</div></div></div>${savedManualSummary()}${githubMarkup()}`;}
  function about(){return `<h1>About the Developer</h1><section class="fbox fabout"><div class="fprofile">${art('Gost1o1')}<div><h2>Quinton Burgess</h2><strong>aka Gost1o1</strong></div></div><div class="fsep"></div><h2>Why I Created This Project</h2><p>I created YouTube Music Takeout to Lidarr to help you <strong>de-Google your life</strong> and easily import your YouTube Music collection into Lidarr, so you can manage your music without paying for another subscription service.</p><h2>Find Me Online</h2><div class="fbuttons"><a class="fbtn" href="https://www.Gost1o1.pro" target="_blank" rel="noopener noreferrer">Website ↗</a><a class="fbtn" href="https://m.twitch.tv/gost1o1/" target="_blank" rel="noopener noreferrer">Twitch ↗</a><a class="fbtn" href="https://www.youtube.com/@Gost1o1" target="_blank" rel="noopener noreferrer">YouTube ↗</a></div><h2>Questions or Bugs?</h2><p>If you encounter an error, email <a class="flink" href="mailto:gost1o1@gost1o1.pro?subject=YouTube%20Music%20to%20Lidarr%20Support">gost1o1@gost1o1.pro</a>. Please include screenshots, videos, error messages or anything else that helps show what happened. I'll work to investigate and fix it.</p><p><strong>Have a wonderful rest of your day, and thanks for using this tool!</strong></p><p class="muted">Developed with assistance from OpenAI ChatGPT (GPT-6). This credit identifies the assistant used in development; specific responses may use different product configurations.</p>${githubMarkup()}<div class="fbuttons">${btn('← Back','complete')}${btn('Exit Application','exit','primary')}</div></section>`;}
  function view(){switch(F.page){case 'manual':return manual();case 'fallback':return manualFallback();case 'preview':return preview();case 'final':return final();case 'progress':return progress();case 'complete':return completed();case 'about':return about();case 'exit':return `<section class="fbox fcenter"><div class="fcheck">✓</div><h1>Thanks for using this tool!</h1><p>The application is closing.</p></section>`;default:return ''}}
- F.render=function(){if(!F.active)return;el.innerHTML=`<div id="flow918"><div class="build-version">YouTube Music to Lidarr · v0.9.1.15.3</div>${F.page==='manual'&&F.classifying?classificationPage():view()}${warning()}</div>`;if(F.page==='manual'&&!F.classifying)enrichCurrentReview();if(typeof rememberNavigation==='function')rememberNavigation();};
+ F.render=function(){if(!F.active)return;el.innerHTML=`<div id="flow918"><div class="build-version">YouTube Music to Lidarr · v0.9.1.15.4</div>${F.page==='manual'&&F.classifying?classificationPage():view()}${warning()}</div>`;if(F.page==='manual'&&!F.classifying){recordReviewVisit();enrichCurrentReview()}if(typeof rememberNavigation==='function')rememberNavigation();};
  F.captureNavigation=()=>({
    page:F.page,reviewKind:F.reviewKind,reviewIndex:{...F.reviewIndex},
+   reviewKey:{artist:recordsFor('artist')[F.reviewIndex.artist]?.key||'',song:recordsFor('song')[F.reviewIndex.song]?.key||''},
+   reviewOrder:{artist:[...F.reviewOrder.artist],song:[...F.reviewOrder.song]},
    tab:F.tab,selected:[...F.selected],choice:{...F.choice},
    job:F.job.map(x=>x.albumId),completed:F.completed,failed:F.failed
  });
@@ -329,11 +384,17 @@
    state.reviewQueue=await api('review/queue');
    F.manualEntries=Array.isArray(state.reviewQueue.manualItems)?state.reviewQueue.manualItems:[];
    F.reviewKind=saved.reviewKind==='song'?'song':'artist';
+   for(const kind of ['artist','song']){
+     const order=Array.isArray(saved.reviewOrder?.[kind])?saved.reviewOrder[kind]:[];
+     F.reviewOrder[kind]=[...new Set(order.filter(k=>typeof k==='string'&&k.length<160).slice(0,1500))];
+     F.reviewHistory[kind]=[];
+   }
    F.reviewIndex={artist:Math.max(0,Math.floor(Number(saved.reviewIndex?.artist)||0)),
                   song:Math.max(0,Math.floor(Number(saved.reviewIndex?.song)||0))};
    for(const kind of ['artist','song']){
-     const total=(state.reviewQueue.items||[]).filter(x=>x.kind===kind).length;
-     F.reviewIndex[kind]=Math.min(F.reviewIndex[kind],Math.max(0,total-1));
+     const list=recordsFor(kind),key=saved.reviewKey?.[kind];
+     const index=list.findIndex(x=>x.key===key);
+     F.reviewIndex[kind]=index>=0?index:Math.min(F.reviewIndex[kind],Math.max(0,list.length-1));
    }
    F.tab=['add','existing','unmatched','manual'].includes(saved.tab)?saved.tab:'add';
    // Saved selections are temporary UI choices, not verified identities.
@@ -443,7 +504,9 @@
   const c=candidates(x),none=sel===-1;
   await api('review/decision',{key:x.key,disposition:none?'needs-research':'candidate-for-planning',candidateId:none?'':c[sel].id,note:''});
   x.disposition=none?'needs-research':'candidate-for-planning';x.selected=none?'':c[sel].id;
-  delete F.choice[x.key];F.reviewIndex[F.reviewKind]=Math.min(F.reviewIndex[F.reviewKind]+1,records().length-1);
+  delete F.choice[x.key];
+  const nextIndex=records().findIndex(v=>v.key===nextRecord?.key);
+  F.reviewIndex[F.reviewKind]=nextIndex>=0?nextIndex:F.reviewIndex[F.reviewKind];
   F.error='';
  }catch(e){F.error=e.message}finally{F.working=false;F.render()}}
  document.addEventListener('click',async(e)=>{
@@ -488,7 +551,7 @@
   F.error='';const a=b.dataset.flow;
   switch(a){
    case 'artists':stopReviewAudio();F.reviewKind='artist';F.render();break;case 'songs':stopReviewAudio();F.reviewKind='song';F.render();break;
-   case 'previous':stopReviewAudio();F.reviewIndex[F.reviewKind]=Math.max(0,F.reviewIndex[F.reviewKind]-1);F.render();break;
+   case 'previous':stopReviewAudio();previousReview();break;
    case 'next':await saveAndNext();break;
    case 'open-preview':stopReviewAudio();try{await fetchStages();F.page='preview';F.render()}catch(err){F.error=err.message;F.render()}break;
    case 'retry-candidate-details':{

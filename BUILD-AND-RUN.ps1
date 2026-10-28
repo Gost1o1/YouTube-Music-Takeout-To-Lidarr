@@ -1,4 +1,4 @@
-# YouTube Music Takeout to Lidarr v0.9.1.15.3
+# YouTube Music Takeout to Lidarr v0.9.1.15.4
 # One-shot Windows PowerShell: build, self-test, publish, launch.
 # Run from PowerShell with:  powershell -ExecutionPolicy Bypass -File .\BUILD-AND-RUN.ps1
 $ErrorActionPreference = 'Stop'
