@@ -4,7 +4,7 @@ This is a focused source test, not a substitute for compiling with .NET 8.
 from pathlib import Path
 import re
 root = Path(__file__).resolve().parents[1]
-cs = (root / 'ManualFallbackV912.cs').read_text(encoding='utf-8')
+cs = (root / 'src/ManualFallbackV912.cs').read_text(encoding='utf-8')
 # These three C# literals must contain TWO source backslashes, yielding one
 # literal backslash in the actual artist name after C# compilation.
 valid = '"Axwell /' + '\\' * 2 + ' Ingrosso"'

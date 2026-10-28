@@ -2,12 +2,12 @@
 from pathlib import Path
 import csv, collections, re, sys
 root=Path(__file__).resolve().parents[1]
-cs=list(root.glob('*.cs'))
-assert (root/'IsrcTitleReconciliation.cs').exists()
-assert (root/'IdentifierRecovery.cs').exists()
+cs=list((root/'src').glob('*.cs'))
+assert (root/'src/IsrcTitleReconciliation.cs').exists()
+assert (root/'src/IdentifierRecovery.cs').exists()
 assert len(cs)>=10
-mb=(root/'IdentifierRecovery.cs').read_text()
-title=(root/'IsrcTitleReconciliation.cs').read_text()
+mb=(root/'src/IdentifierRecovery.cs').read_text()
+title=(root/'src/IsrcTitleReconciliation.cs').read_text()
 ui=(root/'AppUI/index.html').read_text()
 ci=(root/'.github/workflows/build-windows.yml').read_text()
 assert 'inc=artist-credits&fmt=json' in mb
@@ -19,9 +19,9 @@ assert 'Matching display name may NOT override a conflicting known MBID' in mb
 assert 'featured-artist-not-in-mb-credits' in mb
 assert 'version-type-conflict' in title
 assert 'version-details-uncertain' in title
-assert 'IsrcTitleReconciliation.cs' in ci
-assert 'Imported CSV' in ui and 'no fresh full-library MusicBrainz scan' in ui
-assert 'No Lidarr searches or downloads' in (root/'README.md').read_text() or 'No Lidarr writes' in (root/'CHANGELOG-v0.9.1.2.md').read_text()
+assert "'src/**'" in ci
+assert 'Prepare Your YouTube Music Export' in ui and 'Connect to Lidarr' in ui
+assert 'does not download music' in (root/'README.md').read_text()
 # Assert base coverage of the user's latest files, not a simulated live match.
 source=Path('/mnt/data/musicbrainz-songs-audit (12).csv')
 manual=Path('/mnt/data/lidarr-manual-review-triage (1).csv')

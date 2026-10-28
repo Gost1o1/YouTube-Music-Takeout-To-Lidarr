@@ -1,4 +1,4 @@
-/* v0.9.1.15.4 stable review navigation and exact-title source filing. */
+/* v0.9.1.15.5 review progress, pre-display classification and proposal provenance. */
 (() => {
  'use strict';
  const F={active:false,page:'manual',reviewKind:'artist',reviewIndex:{artist:0,song:0},reviewOrder:{artist:[],song:[]},reviewHistory:{artist:[],song:[]},choice:{},selected:new Set(),tab:'add',stageItems:[],job:[],completed:0,failed:false,gh:null,ghPoll:null,error:'',working:false,media:{},mediaLoading:new Set(),mediaPromises:new Map(),bundlePromises:new Map(),manualEntries:[],autoSaving:new Set(),autoAttempted:new Set(),autoFailed:new Set(),classifying:false,classifyStatus:null,classifyJob:null,editingEntry:null,youtubePlayer:null,audio:null,audioTimer:null};
@@ -27,17 +27,23 @@
  }
  function realStats(kind){
   const q=state.reviewQueue?.items||[];
+  const fromReview=new Set(q.filter(x=>x.kind===kind&&x.disposition==='candidate-for-planning'&&
+     x.evidenceStatus!=='stale-candidate-requires-review'&&
+     candidates(x).some(c=>c.id===x.selected)).map(x=>x.key));
+  for(const saved of F.manualEntries)if(saved.kind===kind)fromReview.add(saved.key);
   if(kind==='artist'){
    const total=state.verify?.totalArtists||new Set(state.tracks.map(t=>String(t.Artist||'').trim().toLowerCase()).filter(Boolean)).size||951;
    const review=state.verify?.artistNeedsReview??q.filter(x=>x.kind==='artist').length;
-   return {total, matched:Math.max(0,total-review),unmatched:Math.min(total,review)};
+   const baseline=Math.max(0,total-review),resolved=Math.min(total,baseline+fromReview.size);
+   return {total,baseline,reviewed:resolved-baseline,resolved,unmatched:total-resolved};
   }
   const total=state.verify?.total||state.tracks.length||2505;
   const review=state.inventory?.done?state.inventory?.review:state.verify?.songNeedsReview;
   const reviewCount=typeof review==='number'?review:q.filter(x=>x.kind==='song').length;
-  return {total,matched:Math.max(0,total-reviewCount),unmatched:Math.min(total,reviewCount)};
+  const baseline=Math.max(0,total-reviewCount),resolved=Math.min(total,baseline+fromReview.size);
+  return {total,baseline,reviewed:resolved-baseline,resolved,unmatched:total-resolved};
  }
- function progressCard(name,kind){const st=realStats(kind),pct=st.total?Math.round(st.matched/st.total*100):0;return `<div class="fstat"><h2 style="text-align:center">${name}</h2><div class="fbar"><i style="width:${pct}%"></i></div><div class="fnums"><div class="fnum"><b>${num(st.matched)} / ${num(st.total)}</b><span>Matched</span></div><div class="fnum"><b>${num(st.unmatched)}</b><span>Unmatched</span></div></div></div>`}
+ function progressCard(name,kind){const st=realStats(kind),pct=st.total?Math.floor(st.resolved/st.total*100):0;return `<div class="fstat"><h2 style="text-align:center">${name}</h2><div class="fbar" role="progressbar" aria-label="${E(name)} addressed" aria-valuemin="0" aria-valuemax="${st.total}" aria-valuenow="${st.resolved}"><i style="width:${pct}%"></i></div><div class="fnums"><div class="fnum"><b>${num(st.resolved)} / ${num(st.total)}</b><span>Addressed</span></div><div class="fnum"><b>${num(st.unmatched)}</b><span>Still needs review</span></div></div><div class="muted">${num(st.baseline)} from matching · ${num(st.reviewed)} handled in review</div></div>`}
  function selectedChoice(x){const saved=candidates(x).findIndex(c=>c.id===x?.selected);return F.choice[key(x)]!==undefined?F.choice[key(x)]:x?.disposition==='needs-research'?-1:x?.disposition==='candidate-for-planning'&&saved>=0?saved:null}
  function mediaKey(x,id=''){return x?.key+':'+id}
  function reviewPicture(x,id,alt){
@@ -128,7 +134,7 @@
  }
  function recordReviewVisit(){
    if(F.page!=='manual'||F.classifying)return;
-   const x=current();if(!x)return;
+   const x=current();if(!x||!mediaLoaded(x)||automaticMetadataReason(x))return;
    const history=F.reviewHistory[F.reviewKind];
    if(history[history.length-1]!==x.key)history.push(x.key);
    if(history.length>1000)history.shift();
@@ -303,21 +309,26 @@
    const entries=records(),x=current(),pos=Math.min(F.reviewIndex[F.reviewKind],Math.max(0,entries.length-1));
    const ready=mediaLoaded(x),groups=ready?visibleCandidates(x):[];
    const autoReason=automaticMetadataReason(x);
-   const automatic=!!(autoReason&&!F.autoFailed.has(x.key));
+   const automatic=!!(autoReason&&!F.autoFailed.has(x?.key));
    const sel=selectedChoice(x);
    const forthcoming=entries[pos+1];
    const nextReady=!forthcoming||mediaLoaded(forthcoming);
    const activeChoice=groups.find(g=>g.i===sel);
    const evid=sel===null||sel===-1||!activeChoice?[]:rankEvidence(x,activeChoice.c);
+   const header=`<h1>Manual Review</h1><div class="fstats">${progressCard('Artist Matching','artist')}${progressCard('Song Matching','song')}</div>`;
+   const tabs=`<div class="ftabs"><button class="${F.reviewKind==='artist'?'active':''}" data-flow="artists">Artist Review</button><button class="${F.reviewKind==='song'?'active':''}" data-flow="songs">Song Review</button></div>`;
+   // Never display a source/candidate card until the review algorithm has
+   // finished its per-item checks. Auto-filed cards are hidden completely.
+   if(x&&(!ready||automatic))return `${header}<section class="fbox">${tabs}<div class="fnav"><strong>${pos+1} of ${entries.length}</strong></div>${!ready?loadingIndicator(x,'Preparing next review'):'<div class="floading" aria-live="polite">Saving complete source metadata automatically…</div>'}</section>`;
    const source=F.media[mediaKey(x,'')]||{};
    const sourceArtist=knownName(source.Name||source.name)?(source.Name||source.name):knownName(x?.artist)?x.artist:'Artist unknown';
    const sourceSong=knownName(source.SourceTitle||source.sourceTitle)?(source.SourceTitle||source.sourceTitle):knownName(x?.song)?x.song:'Song title unavailable';
    const noSource=!knownName(x?.artist)&&!knownName(x?.song)&&!source.SourceTitle&&!source.sourceTitle&&
        !source.ArtworkUrl&&!source.artworkUrl&&!x?.youtubeUrl;
    const unavailable=source.Availability||source.availability||'';
-   return `<h1>Manual Review</h1><div class="fstats">${progressCard('Artist Matching','artist')}${progressCard('Song Matching','song')}</div>
-   <section class="fbox"><div class="ftabs"><button class="${F.reviewKind==='artist'?'active':''}" data-flow="artists">Artist Review</button><button class="${F.reviewKind==='song'?'active':''}" data-flow="songs">Song Review</button></div>
-   <div class="fnav">${btn('← Previous','previous')}<strong>${entries.length?pos+1:0} of ${entries.length}</strong>${btn('Next →','next','primary',sel===null||F.working||!x||!ready||!nextReady||automatic||groups.length===0)}</div>
+   return `${header}
+   <section class="fbox">${tabs}
+   <div class="fnav">${btn('← Previous','previous')}<strong>${entries.length?pos+1:0} of ${entries.length}</strong>${btn(F.reviewKind==='artist'&&!forthcoming?'Next: Song Review →':'Next →','next','primary',x?(sel===null||F.working||!ready||!nextReady||groups.length===0):F.reviewKind!=='artist')}</div>
    ${ready&&!nextReady?loadingIndicator(forthcoming,'Preparing next review'):''}
    ${x?`<div class="fgrid"><section class="fpane"><h3>YouTube Music Source</h3>${noSource?'<div class="fsourcewarning">YouTube Music source unresolvable — no artist, song, accessible link, or artwork.</div>':`<div class="fprofile">${reviewPicture(x,'',sourceArtist)}<div><strong>${E(sourceArtist)}</strong><div>${E(sourceSong)}</div><div class="muted">${E(source.Album||source.album||x.album||'')}</div>${/^https:\/\/(www\.|music\.)?youtube\.com\/watch\?v=[\w-]{11}$/.test(x?.youtubeUrl||'')?`<a href="${E(x.youtubeUrl)}" target="_blank" rel="noopener noreferrer">Open original song ↗</a>`:''}</div></div>${reviewAudio(x,'')}`}${unavailable&&unavailable!=='YouTube link available'?`<div class="fsourcewarning">${E(unavailable)}</div>`:''}</section>
    <section class="fpane"><h3>Candidate Matches</h3>${!ready?loadingIndicator(x,'Loading candidate names, songs and previews'):`<div class="fcandidates">${automatic?'':groups.map(g=>{const selected=sel===g.i;const repeated=groups.filter(other=>normalizedName(other.display)===normalizedName(g.display)).length>1;return `<div class="fcandidate ${selected?'selected':''}" role="button" tabindex="0" data-option="${g.i}" aria-pressed="${selected}">${reviewPicture(x,g.c.id,g.display)}<strong>${E(g.display)}</strong>${repeated?`<small class="fduplicate">Separate MusicBrainz ID · ${E(g.c.id)}</small>`:''}${reviewAudio(x,g.c.id)}</div>`}).join('')}
@@ -336,25 +347,40 @@
    if(name==='unmatched')return songs.filter(x=>String(x.category||'').startsWith('Manual Review'));
    return [];
  }
+ function originTag(origin){
+   if(!['Algorithm','Manual Review','Auto Manual Review'].includes(origin))return '';
+   const kind=origin==='Algorithm'?'algorithm':origin==='Manual Review'?'manual':'auto';
+   return `<span class="forigin ${kind}">${E(origin)}</span>`;
+ }
  function inventorySongRow(x){
    const candidate=x.artistReviewCandidateId||x.songReviewCandidateId;
-   const review= candidate?'Selected review candidate saved; further recording/album verification required':x.reason||'';
+   const review=x.reviewPlanNote||(candidate?'Selected review candidate saved; further recording/album verification required':x.reason||'');
    const metadata=x.metadataStatus==='lidarr-track-metadata-present';
    const stateLabel=metadata&&!String(x.category||'').startsWith('Already in Library')
      ?'Present in Lidarr metadata · audio not confirmed':String(x.category||'').startsWith('Already in Library')?'Lidarr file record present':'';
-   return `<div class="frow passive">${art(x.artist||'A')}<div style="min-width:0;flex:1"><strong>${E(x.title||'Untitled')}</strong><small>${E(x.artist||'Unknown artist')}${x.album?' · '+E(x.album):''}</small>${stateLabel?`<small>${E(stateLabel)}</small>`:''}${review?`<small>${E(review)}</small>`:''}</div></div>`;
+   return `<div class="frow passive">${art(x.artist||'A')}<div style="min-width:0;flex:1"><strong>${E(x.title||'Untitled')}</strong><small>${E(x.artist||'Unknown artist')}${x.album?' · '+E(x.album):''}</small>${stateLabel?`<small>${E(stateLabel)}</small>`:''}${review?`<small>${E(review)}</small>`:''}</div>${originTag(x.reviewOrigin)}</div>`;
  }
- function albumRow(item,interactive){let id=Number(item.albumId),selected=F.selected.has(id);return `<label class="frow ${interactive&&selected?'selected':''} ${!interactive?'passive':''}">${interactive?`<input type="checkbox" data-album="${id}" ${selected?'checked':''} aria-label="Select ${E(item.album)}"/>`:''}${art(item.artist||'A')}<div><strong>${E(item.album||item.song||'Unresolved title')}</strong><small>${E(item.artist||'')} · ${num(item.safeSongs??1)} ${Number(item.safeSongs||1)===1?'song':'songs'}</small></div></label>`}
- function manualRow(x){return `<div class="frow passive">${art(x.artist||'A')}<div style="flex:1;min-width:0"><strong>${E(x.song||'Untitled')}</strong><small>${E(x.artist||'Unknown artist')}${x.album?' · '+E(x.album):''}</small><small>${x.saveMode==='auto'?(['sole-exact-artist-name-unverified','identical-artist-names-unverified'].includes(x.reason)?'Auto-saved · Matching artist name (not verified)':'Auto-saved · No usable candidates'):'Manually saved'} · Not in Lidarr</small></div><button class="fbtn" type="button" data-edit-manual="${E(x.key)}">Review / Edit</button></div>`;}
+ function inventoryArtistRow(x){return `<div class="frow passive">${art(x.artist||'A')}<div style="min-width:0;flex:1"><strong>${E(x.artist||'Unknown artist')}</strong><small>${E(x.reviewPlanNote||'Artist proposed for later verification; no Lidarr write.')}</small></div>${originTag(x.reviewOrigin)}</div>`;}
+ function albumRow(item,interactive){let id=Number(item.albumId),selected=F.selected.has(id);return `<label class="frow ${interactive&&selected?'selected':''} ${!interactive?'passive':''}">${interactive?`<input type="checkbox" data-album="${id}" ${selected?'checked':''} aria-label="Select ${E(item.album)}"/>`:''}${art(item.artist||'A')}<div style="flex:1;min-width:0"><strong>${E(item.album||item.song||'Unresolved title')}</strong><small>${E(item.artist||'')} · ${num(item.safeSongs??1)} ${Number(item.safeSongs||1)===1?'song':'songs'}</small></div>${originTag('Algorithm')}</label>`}
+ function manualRow(x){return `<div class="frow passive">${art(x.artist||'A')}<div style="flex:1;min-width:0"><strong>${E(x.song||'Untitled')}</strong><small>${E(x.artist||'Unknown artist')}${x.album?' · '+E(x.album):''}</small><small>Source metadata saved for later manual import; no verified recording or Lidarr write.</small></div>${originTag(x.saveMode==='auto'?'Auto Manual Review':'Manual Review')}<button class="fbtn" type="button" data-edit-manual="${E(x.key)}">Review / Edit</button></div>`;}
  function savedManualSummary(){const entries=F.manualEntries||[];if(!entries.length)return '';
    return `<section class="fbox"><h2>Saved for Manual Import (${entries.length})</h2><div class="muted">These songs were saved from YouTube Music metadata, not imported or downloaded. They still require a supported manual acquisition/import path.</div>${entries.slice(0,60).map(manualRow).join('')}${entries.length>60?`<div class="muted">${entries.length-60} additional entries are available in Migration Preview.</div>`:''}</section>`;
  }
- function preview(){const list=categorized(F.tab);return `<h1>Migration Preview</h1><div class="fsummary"><div class="fnum"><b>${num(state.inventory?.toAdd||0)}</b><span>Proposed Songs</span></div><div class="fnum"><b>${num(state.inventory?.review||0)}</b><span>Still Unmatched</span></div><div class="fnum"><b>${num(state.inventory?.filesRead||0)}</b><span>Downloaded Files Found</span></div></div>
+ function preview(){
+  const list=categorized(F.tab),rows=state.inventoryItems||[];
+  const proposed=rows.filter(x=>x.type==='song'&&String(x.category||'').startsWith('To Be Added'));
+  const handledSongs=proposed.filter(x=>['Manual Review','Auto Manual Review'].includes(x.reviewOrigin));
+  const handledArtists=rows.filter(x=>x.type==='artist'&&String(x.category||'').startsWith('To Be Added')&&['Manual Review','Auto Manual Review'].includes(x.reviewOrigin));
+  const counts={toAdd:rows.length?proposed.length:state.inventory?.toAdd||0,
+    unmatched:rows.length?categorized('unmatched').length:state.inventory?.review||0};
+  return `<h1>Migration Preview</h1><div class="fsummary"><div class="fnum"><b>${num(counts.toAdd)}</b><span>Proposed Songs</span></div><div class="fnum"><b>${num(counts.unmatched)}</b><span>Still Unmatched</span></div><div class="fnum"><b>${num(state.inventory?.filesRead||0)}</b><span>Downloaded Files Found</span></div></div>
   <section class="fbox"><h2>Music Library Overview</h2><div class="ftabs four">${['add','existing','unmatched','manual'].map((k,i)=>`<button data-tab="${k}" class="${F.tab===k?'active':''}">${['To Be Added','Already in Lidarr','Unmatched','Saved for Manual Import'][i]}</button>`).join('')}</div>
   ${F.tab==='add'?`<div class="fall"><label><input id="flow918-selectall" type="checkbox" ${F.selected.size===F.stageItems.length&&F.stageItems.length?'checked':''}/>Select All</label><span class="muted">${F.selected.size} of ${F.stageItems.length} selected</span></div>`:''}
   ${F.tab==='manual'?`<div class="fshort" style="margin-bottom:12px"><strong>${F.manualEntries.filter(x=>x.saveMode==='auto').length} automatically saved</strong> · ${F.manualEntries.filter(x=>x.saveMode!=='auto').length} manually saved. These entries are metadata only, not songs downloaded or imported to Lidarr.</div>`:''}
   ${F.tab==='existing'?'<div class="fshort">Takeout songs found in Lidarr catalog metadata or file records. Some may also need audio and appear under To Be Added.</div>':''}
-  ${list.length?list.map(item=>F.tab==='manual'?manualRow(item):F.tab==='add'?albumRow(item,true):inventorySongRow(item)).join(''):'<div class="fcenter muted" style="padding:20px">No entries in this category.</div>'}
+  ${F.tab==='add'&&(handledSongs.length||handledArtists.length)?`<h3 style="margin-top:17px">Reviewed proposals (${handledSongs.length} songs, ${handledArtists.length} artists)</h3><div class="muted">These are planning records, not selectable album imports. User-chosen candidates and saved source metadata still need verification or a manual-import path.</div>${handledSongs.map(inventorySongRow).join('')}${handledArtists.map(inventoryArtistRow).join('')}`:''}
+  ${F.tab==='add'&&list.length?'<h3 style="margin-top:17px">Album plans</h3>':''}
+  ${list.length?list.map(item=>F.tab==='manual'?manualRow(item):F.tab==='add'?albumRow(item,true):inventorySongRow(item)).join(''):(F.tab==='add'&&(handledSongs.length||handledArtists.length))?'':'<div class="fcenter muted" style="padding:20px">No entries in this category.</div>'}
   <div class="fend">${btn('Next →','open-final','primary',!F.selected.size)}</div></section>
   <div class="fend">${btn('← Manual Review','open-manual')}</div>`;}
  function final(){const selected=F.stageItems.filter(x=>F.selected.has(x.albumId));const songCount=selected.reduce((n,x)=>n+(x.safeSongs||0),0);return `<h1>Finalize Lidarr Import</h1><section class="fbox"><h2>Albums to Import</h2><div class="fsummary two"><div class="fnum"><b>${selected.length}</b><span>Albums</span></div><div class="fnum"><b>${num(songCount)}</b><span>Songs</span></div></div>${selected.map(x=>albumRow(x,false)).join('')}<div class="fshort"><strong>This version prepares a local import plan only.</strong> Confirming below stages the selected albums in this application. It does not add or search for music in Lidarr, and does not download audio. A later, separately approved Lidarr-write version will be required for those actions.</div><div class="fend">${btn('← Back','open-preview')}${btn('Confirm Local Import Plan','confirm','primary',!selected.length||F.working)}</div></section>${savedManualSummary()}`}
@@ -370,7 +396,7 @@
  function completed(){const songCount=F.job.reduce((n,x)=>n+x.safeSongs,0);return `<div class="fbox fcelebrate fcenter">${confetti()}<div class="fcontent"><div class="fcheck">✓</div><h1>Congratulations!</h1><p class="fstatus">Your local import plan is complete.</p><div class="fbar"><i style="width:100%"></i></div><div class="fstatus">100% Complete</div><div class="fsummary two" style="max-width:370px;margin:15px auto"><div class="fnum"><b>${F.job.length}</b><span>Albums</span></div><div class="fnum"><b>${num(songCount)}</b><span>Songs</span></div></div><div class="fbuttons">${btn('Exit Application','exit')}${btn('Learn More About the Developer','about','primary')}</div></div></div>${savedManualSummary()}${githubMarkup()}`;}
  function about(){return `<h1>About the Developer</h1><section class="fbox fabout"><div class="fprofile">${art('Gost1o1')}<div><h2>Quinton Burgess</h2><strong>aka Gost1o1</strong></div></div><div class="fsep"></div><h2>Why I Created This Project</h2><p>I created YouTube Music Takeout to Lidarr to help you <strong>de-Google your life</strong> and easily import your YouTube Music collection into Lidarr, so you can manage your music without paying for another subscription service.</p><h2>Find Me Online</h2><div class="fbuttons"><a class="fbtn" href="https://www.Gost1o1.pro" target="_blank" rel="noopener noreferrer">Website ↗</a><a class="fbtn" href="https://m.twitch.tv/gost1o1/" target="_blank" rel="noopener noreferrer">Twitch ↗</a><a class="fbtn" href="https://www.youtube.com/@Gost1o1" target="_blank" rel="noopener noreferrer">YouTube ↗</a></div><h2>Questions or Bugs?</h2><p>If you encounter an error, email <a class="flink" href="mailto:gost1o1@gost1o1.pro?subject=YouTube%20Music%20to%20Lidarr%20Support">gost1o1@gost1o1.pro</a>. Please include screenshots, videos, error messages or anything else that helps show what happened. I'll work to investigate and fix it.</p><p><strong>Have a wonderful rest of your day, and thanks for using this tool!</strong></p><p class="muted">Developed with assistance from OpenAI ChatGPT (GPT-6). This credit identifies the assistant used in development; specific responses may use different product configurations.</p>${githubMarkup()}<div class="fbuttons">${btn('← Back','complete')}${btn('Exit Application','exit','primary')}</div></section>`;}
  function view(){switch(F.page){case 'manual':return manual();case 'fallback':return manualFallback();case 'preview':return preview();case 'final':return final();case 'progress':return progress();case 'complete':return completed();case 'about':return about();case 'exit':return `<section class="fbox fcenter"><div class="fcheck">✓</div><h1>Thanks for using this tool!</h1><p>The application is closing.</p></section>`;default:return ''}}
- F.render=function(){if(!F.active)return;el.innerHTML=`<div id="flow918"><div class="build-version">YouTube Music to Lidarr · v0.9.1.15.4</div>${F.page==='manual'&&F.classifying?classificationPage():view()}${warning()}</div>`;if(F.page==='manual'&&!F.classifying){recordReviewVisit();enrichCurrentReview()}if(typeof rememberNavigation==='function')rememberNavigation();};
+ F.render=function(){if(!F.active)return;el.innerHTML=`<div id="flow918"><div class="build-version">YouTube Music to Lidarr · v0.9.1.15.5</div>${F.page==='manual'&&F.classifying?classificationPage():view()}${warning()}</div>`;if(F.page==='manual'&&!F.classifying){recordReviewVisit();enrichCurrentReview()}if(typeof rememberNavigation==='function')rememberNavigation();};
  F.captureNavigation=()=>({
    page:F.page,reviewKind:F.reviewKind,reviewIndex:{...F.reviewIndex},
    reviewKey:{artist:recordsFor('artist')[F.reviewIndex.artist]?.key||'',song:recordsFor('song')[F.reviewIndex.song]?.key||''},
@@ -498,15 +524,22 @@
   }catch(e){F.gh={...F.gh,error:e.message};F.render()}
  },Math.max(3,seconds)*1000)}
  async function githubStar(){F.working=true;F.render();try{const r=await api('github/star');F.gh={...F.gh,starred:!!r.starred};F.render()}catch(e){F.gh={...F.gh,error:e.message};F.render()}finally{F.working=false}}
- async function saveAndNext(){stopReviewAudio();const x=current(),sel=selectedChoice(x);if(!x||sel===null||!mediaLoaded(x)||visibleCandidates(x).length===0)return;
+ async function saveAndNext(){stopReviewAudio();const x=current(),sel=selectedChoice(x);
+   if(!x&&F.reviewKind==='artist'){F.reviewKind='song';F.render();return}
+   if(!x||sel===null||!mediaLoaded(x)||visibleCandidates(x).length===0)return;
    const nextRecord=records()[F.reviewIndex[F.reviewKind]+1];
    if(nextRecord&&!mediaLoaded(nextRecord))return;F.working=true;F.render();try{
   const c=candidates(x),none=sel===-1;
   await api('review/decision',{key:x.key,disposition:none?'needs-research':'candidate-for-planning',candidateId:none?'':c[sel].id,note:''});
   x.disposition=none?'needs-research':'candidate-for-planning';x.selected=none?'':c[sel].id;
   delete F.choice[x.key];
-  const nextIndex=records().findIndex(v=>v.key===nextRecord?.key);
-  F.reviewIndex[F.reviewKind]=nextIndex>=0?nextIndex:F.reviewIndex[F.reviewKind];
+  if(!nextRecord&&F.reviewKind==='artist'){
+    F.reviewKind='song';
+    const nextSong=current();if(nextSong)ensureBundle(nextSong);
+  }else{
+    const nextIndex=records().findIndex(v=>v.key===nextRecord?.key);
+    F.reviewIndex[F.reviewKind]=nextIndex>=0?nextIndex:F.reviewIndex[F.reviewKind];
+  }
   F.error='';
  }catch(e){F.error=e.message}finally{F.working=false;F.render()}}
  document.addEventListener('click',async(e)=>{

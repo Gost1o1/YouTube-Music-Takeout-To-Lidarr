@@ -5,7 +5,7 @@ This check is NOT a substitute for native dotnet build.
 from pathlib import Path
 import re
 
-source = (Path(__file__).resolve().parents[1] / "GuidedReviewV917.cs").read_text(encoding="utf-8")
+source = (Path(__file__).resolve().parents[1] / "src/GuidedReviewV917.cs").read_text(encoding="utf-8")
 start = source.index("async Task SendReviewQueue(HttpListenerContext ctx)")
 end = source.index("async Task SendReviewDecisionsCsv", start)
 method = source[start:end]

@@ -33,7 +33,7 @@ const choose=i=>events.click({target:{closest:(selector)=>selector.includes('dat
 async function run(){
  await F.open();
  await sleep();await sleep();await sleep();
- assert.match(el.innerHTML,/Loading candidate names/);
+ assert.match(el.innerHTML,/Preparing next review/);
  choose(-1);assert.equal(F.choice.k1,undefined,'Cannot select none before async data arrives');
  while(pending.length){pending.shift()();await sleep()}
  await sleep();await sleep();
@@ -42,7 +42,7 @@ async function run(){
 }
 async function test(){
  await F.open();await sleep();await sleep();await sleep();
- assert.match(el.innerHTML,/Loading candidate names/);
+ assert.match(el.innerHTML,/Preparing next review/);
  choose(-1);assert.equal(F.choice.k1,undefined);
  for(let n=0;n<4;n++){while(pending.length){pending.shift()();await sleep()}await sleep()}
  assert.match(el.innerHTML,/Dick Dale and His Del-Tones/);

@@ -6,7 +6,7 @@ from pygments.lexers.dotnet import CSharpLexer
 from pygments.token import Comment,String
 import csv,re,subprocess,tempfile
 root=Path(__file__).resolve().parents[1]
-files=list(root.glob('*.cs'))
+files=list((root/'src').glob('*.cs'))
 assert len(files)>=15, len(files)
 for f in files:
  stack=[]
@@ -17,7 +17,7 @@ for f in files:
    elif c in ')]}':
     assert stack and '([{'.index(stack.pop())==')]}'.index(c),f
  assert not stack,f
-prog=(root/'Program.cs').read_text(); pipeline=(root/'UnifiedPipelineV919.cs').read_text(); verification=(root/'Verification.cs').read_text(); ui=(root/'AppUI/index.html').read_text(); recovery=(root/'IdentifierRecovery.cs').read_text()
+prog=(root/'src/Program.cs').read_text(); pipeline=(root/'src/UnifiedPipelineV919.cs').read_text(); verification=(root/'src/Verification.cs').read_text(); ui=(root/'AppUI/index.html').read_text(); recovery=(root/'src/IdentifierRecovery.cs').read_text()
 assert 'BeginUnifiedPipeline(automaticSource)' in prog
 assert 'case "/api/pipeline/status":' in prog
 assert 'case "/api/pipeline/start":' in prog

@@ -4,14 +4,15 @@
 const assert=require('node:assert/strict');
 const fs=require('node:fs'),path=require('node:path'),vm=require('node:vm');
 const source=fs.readFileSync(path.join(__dirname,'../AppUI/flow918.js'),'utf8');
-const program=fs.readFileSync(path.join(__dirname,'../Program.cs'),'utf8');
+const program=fs.readFileSync(path.join(__dirname,'../src/Program.cs'),'utf8');
 const id1='12345678-1111-4111-8111-123456789abc',id2='12345678-2222-4222-8222-123456789abc';
 const artist={key:'artist:lazlo',kind:'artist',artist:'Lazlo',song:'Sucette',album:'Lazlo',
  youtubeUrl:'https://www.youtube.com/watch?v=csZa-YxvxSE',disposition:'candidate-for-planning',
  selected:id1,candidates:[{id:id1,label:'Lazlo',evidence:''},{id:id2,label:'Lazlo',evidence:''}]};
 const server={rows:[
- {type:'song',row:1,artist:'Lazlo',title:'Sucette',album:'Lazlo',category:'Manual Review / Songs',
-  reason:'Recording identity awaits verification',metadataStatus:'not-checked',artistReviewCandidateId:id1,songReviewCandidateId:''},
+ {type:'song',row:1,artist:'Lazlo',title:'Sucette',album:'Lazlo',category:'To Be Added / Songs (manual proposal; verification pending)',
+  reason:'Recording identity awaits verification',reviewOrigin:'Manual Review',reviewPlanNote:'User selected an artist candidate; recording and album still require verification. No Lidarr write.',
+  metadataStatus:'not-checked',artistReviewCandidateId:id1,songReviewCandidateId:''},
  {type:'song',row:2,artist:'Example',title:'Catalog Song',album:'Already Cataloged',trackId:'42',category:'To Be Added / Songs (missing file)',
   reason:'Missing file',metadataStatus:'lidarr-track-metadata-present',artistReviewCandidateId:'',songReviewCandidateId:''},
  {type:'song',row:3,artist:'Example',title:'Available Song',album:'Available Album',category:'Already in Library / Songs',
@@ -42,12 +43,13 @@ async function tab(name){await handlers.click({target:{closest:selector=>selecto
  await F.open('preview');await flush();
  assert(calls.includes('lidarr/inventory/items'),'Migration Preview must fetch its inventory rows');
  assert.match(el.innerHTML,/Already Cataloged/,'To Be Added staging queue must remain usable');
+ assert.match(el.innerHTML,/Sucette/,'artist-selected song belongs under To Be Added as a flagged proposal');
+ assert.match(el.innerHTML,/Manual Review/,'manual review origin should be visible');
  await tab('existing');
  assert.match(el.innerHTML,/Catalog Song/,'an existing Lidarr metadata record must display even without downloaded files');
  assert.match(el.innerHTML,/Available Song/,'a downloaded Lidarr record must also display');
  await tab('unmatched');
- assert.match(el.innerHTML,/Sucette/,'unmatched Lazlo recording must not disappear');
- assert.match(el.innerHTML,/Selected review candidate saved/,'the artist selection should be visible but not presented as recording verification');
+ assert.doesNotMatch(el.innerHTML,/Sucette/,'review-selected Lazlo must no longer be misfiled as unmatched');
  assert(!calls.includes('lidarr/inventory/stage-albums'),'viewing the preview must remain read-only');
  server.rows=server.rows.slice(0,2);
  await F.open('preview');await flush();
@@ -56,5 +58,5 @@ async function tab(name){await handlers.click({target:{closest:selector=>selecto
   'Lidarr inventory items must include saved choices from the review ledger');
  assert(program.includes('metadataStatus = d.MetadataStatus'),
   'Lidarr metadata status must be provided separately from audio-file presence');
- console.log('PASS: staging and inventory fetched; metadata/file overlap; 289-style unmatched rows; saved artist choice; unique MBIDs; fail closed on incomplete inventory');
+ console.log('PASS: staging and inventory fetched; metadata/file overlap; manually reviewed Lazlo proposal; unmatched isolation; unique MBIDs; fail closed on incomplete inventory');
 })().catch(err=>{console.error(err);process.exitCode=1});

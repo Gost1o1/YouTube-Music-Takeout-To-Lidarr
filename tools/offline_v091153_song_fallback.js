@@ -62,8 +62,8 @@ const click=async flow=>events.click({target:{closest:selector=>selector.include
 (async()=>{
  await F.open('manual');await flush();F.reviewKind='song';F.render();await flush();
  assert.equal(typeof releaseAuto,'function','a complete source with no usable recording should auto-save');
- assert.match(el.innerHTML,/Saving automatically/);
- assert.match(el.innerHTML,/No MusicBrainz recording is being verified/);
+ assert.match(el.innerHTML,/Saving complete source metadata automatically/);
+ assert(!el.innerHTML.includes('YouTube Music Source'),'auto-handled source must never flash as a review card');
  assert(!el.innerHTML.includes('MusicBrainz artist identity is not verified'));
  releaseAuto();await flush();
  assert(!server.items.some(x=>x.key===complete.key));
