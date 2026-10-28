@@ -11,6 +11,7 @@
 <p align="center">
   <a href="https://github.com/Gost1o1/YouTube-Music-Takeout-To-Lidarr/releases"><img alt="Download for Windows" src="https://img.shields.io/badge/Download-Windows%20x64-086C4F?style=for-the-badge&logo=windows&logoColor=white" /></a>
   <a href="https://github.com/Gost1o1/YouTube-Music-Takeout-To-Lidarr/actions/workflows/build-windows.yml"><img alt="Development builds" src="https://img.shields.io/badge/Preview-Test%20Builds-325A82?style=for-the-badge&logo=githubactions&logoColor=white" /></a>
+  <a href="https://www.gost1o1.pro"><img alt="Gost1o1 website" src="https://img.shields.io/badge/Visit-Gost1o1.pro-345C9C?style=for-the-badge&logo=googlechrome&logoColor=white" /></a>
 </p>
 
 <p align="center">
@@ -45,4 +46,4 @@ The downloaded Windows build is self-contained; **you do not need PowerShell or 
 - [Technical history and older version notes](docs/history/README.md)
 - [License](LICENSE) — personal and noncommercial terms; this is not an OSI open-source license.
 
-Created by **Quinton Burgess (Gost1o1)**.
+Created by **Quinton Burgess (Gost1o1)** · [www.gost1o1.pro](https://www.gost1o1.pro)
