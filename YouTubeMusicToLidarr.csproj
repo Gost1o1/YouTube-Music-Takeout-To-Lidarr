@@ -12,5 +12,8 @@
   </PropertyGroup>
   <ItemGroup>
     <Content Include="AppUI\index.html" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="AppUI\Gost1o1-logo.jpg" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="AppUI\flow918.js" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="AppUI\flow918.css" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

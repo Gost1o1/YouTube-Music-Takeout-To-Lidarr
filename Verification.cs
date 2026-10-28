@@ -8,10 +8,10 @@ sealed partial class DesktopServer
 {
     sealed class VerifyState
     {
-        public bool Started, Running, Completed, Failed, Cancelled;
+        public bool Started, Running, Completed, Failed, Cancelled, ImportedAuditOnly;
         public int Checked, Total, TotalArtists, ResolvedArtists, VerifiedRecordings, Ambiguous, Unmatched, LookupFailures, Requests;
-        public int FirstPassSeconds, ProcessedSecondPass, SecondPassTotal, BatchesCompleted, TotalBatches, Retries, HttpErrors;
-        public int AuditedArtists, ArtistHighConfidence, ArtistNeedsReview, SongHighConfidence, SongNeedsReview;
+        public int FirstPassSeconds, ProcessedSecondPass, SecondPassTotal, FocusedDone, FocusedTotal, BatchesCompleted, TotalBatches, Retries, HttpErrors;
+        public int AuditedArtists, ArtistHighConfidence, ArtistNeedsReview, SongHighConfidence, SongNeedsReview, SongIdentitySupported;
         public DateTimeOffset StartedAt = DateTimeOffset.MinValue;
         public string Phase = "Not started", Error = "";
         public VerifyState Copy() => (VerifyState)MemberwiseClone();
@@ -23,6 +23,7 @@ sealed partial class DesktopServer
         public List<string> CandidateArtistIds = new(), CandidateRecordings = new(), CandidateAlbums = new(), ObservedCreditNames = new();
         public int ArtistCandidateCount, RecordingCandidateCount;
         public bool ExactTitle, ExactArtist, AlbumMatch, CrossSongSupport, MultipleRecordingVersions, AlbumIdentifiesVersion;
+        public bool AlbumSearchConfirmed;
         public int Confidence;
     }
     sealed class Candidate
@@ -36,12 +37,20 @@ sealed partial class DesktopServer
     }
     sealed class RequestPacer
     {
-        public DateTimeOffset Last = DateTimeOffset.MinValue;
+        readonly SemaphoreSlim queue = new(1, 1);
+        DateTimeOffset last = DateTimeOffset.MinValue;
         public async Task Wait(CancellationToken ct)
         {
-            var gap = TimeSpan.FromMilliseconds(1200) - (DateTimeOffset.UtcNow - Last);
-            if (gap > TimeSpan.Zero) await Task.Delay(gap, ct);
-            Last = DateTimeOffset.UtcNow;
+            // One process-wide MusicBrainz lane, including searches, browse and recovery.
+            // Serializing reservation prevents concurrent workers evading the API rate limit.
+            await queue.WaitAsync(ct);
+            try
+            {
+                var gap = TimeSpan.FromMilliseconds(1150) - (DateTimeOffset.UtcNow - last);
+                if (gap > TimeSpan.Zero) await Task.Delay(gap, ct);
+                last = DateTimeOffset.UtcNow;
+            }
+            finally { queue.Release(); }
         }
     }
     // These are per-run evidence only; no persisted responses, matching decisions, or resumption cache.
@@ -49,29 +58,45 @@ sealed partial class DesktopServer
     {
         const int batchSize = 100;
         var results = new MatchResult[source.Length];
-        var pacer = new RequestPacer();
+        var pacer = sharedMbPacer;
         var artistEvidence = new Dictionary<string, Dictionary<string, int>>(StringComparer.OrdinalIgnoreCase);
         var artistIds = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var unresolved = new List<int>();
         var sourceSnapshot = source.ToArray();
+        // Distinct Takeout rows can refer to the same artist/song/edition.
+        // Reuse their first-pass result without treating duplicate evidence as independent corroboration.
+        var firstPassMatches = new Dictionary<string, MatchResult>(StringComparer.Ordinal);
         try
         {
             int batches = (source.Length + batchSize - 1) / batchSize;
             lock (verificationGate) { verification.TotalBatches = batches; verification.Phase = "Starting first verification pass"; }
+            using var mb = CreateMbClient(); // One pooled connection throughout verification.
             for (int start = 0; start < source.Length; start += batchSize)
             {
                 ct.ThrowIfCancellationRequested();
                 int end = Math.Min(source.Length, start + batchSize);
-                using var mb = CreateMbClient();
                 for (int i = start; i < end; i++)
                 {
                     ct.ThrowIfCancellationRequested();
                     var track = source[i];
                     lock (verificationGate) verification.Phase = $"First pass: batch {start / batchSize + 1}/{batches}, recording {i + 1}/{source.Length}";
                     // Query both title and artist, rather than stopping at multiple versions of a common title.
-                    var item = await MatchAsync(mb, pacer, track, null, false, ct);
-                    results[i] = item;
-                    if (item.Verified) AddEvidence(artistEvidence, track.Artist, item.ArtistId, item.Confidence);
+                    var dedupeKey = string.Join("\u001f", track.Artist, track.Song, track.Album,
+                        string.Join("\u001e", track.ArtistCredits));
+                    bool previousSuccess = firstPassMatches.TryGetValue(dedupeKey, out var item);
+                    if (!previousSuccess)
+                    {
+                        item = await MatchAsync(mb, pacer, track, null, false, ct);
+                        // Never cache transient failures; later identical rows can retry.
+                        if (item.RequestSucceeded) firstPassMatches[dedupeKey] = item;
+                    }
+                    else IncrementUnifiedCacheHit();
+                    results[i] = item!;
+                    // A duplicate source row is NOT independent artist corroboration.
+                    if (item!.Verified)
+                    {
+                        if (!previousSuccess) AddEvidence(artistEvidence, track.Artist, item.ArtistId, item.Confidence);
+                    }
                     else if (item.RequestSucceeded) unresolved.Add(i);
                     lock (verificationGate) { verification.Checked++; UpdateCounts(results, artistEvidence); }
                 }
@@ -86,12 +111,11 @@ sealed partial class DesktopServer
                     artistIds[artist] = ranked[0].Key;
             }
             lock (verificationGate) { verification.FirstPassSeconds = (int)(DateTimeOffset.UtcNow - verification.StartedAt).TotalSeconds; verification.SecondPassTotal = unresolved.Count; verification.Phase = $"Starting artist-corroboration pass for {unresolved.Count} unresolved recordings"; }
-            // A new HttpClient per batch renews the underlying connections. All MusicBrainz calls still share one pacer.
+            // Reuse the same connections, cache and single MusicBrainz rate-limiter for all passes.
             int secondBatches = (unresolved.Count + batchSize - 1) / batchSize;
             for (int start = 0; start < unresolved.Count; start += batchSize)
             {
                 ct.ThrowIfCancellationRequested();
-                using var mb = CreateMbClient();
                 for (int j = start; j < Math.Min(start + batchSize, unresolved.Count); j++)
                 {
                     ct.ThrowIfCancellationRequested();
@@ -110,6 +134,35 @@ sealed partial class DesktopServer
                 }
                 Log($"MusicBrainz second pass: batch {start / batchSize + 1}/{secondBatches}, processed {Math.Min(start + batchSize, unresolved.Count)}/{unresolved.Count}");
             }
+            // Focused album follow-up: only for provisionally verified entries with
+            // an ambiguous recording version AND an available source album.
+            // This makes a targeted MB query instead of repeating 2,505 lookups.
+            // A returned album association is corroboration, never a complete catalog census.
+            var focused = Enumerable.Range(0, results.Length)
+                .Where(i => results[i] is { Verified: true, MultipleRecordingVersions: true, AlbumIdentifiesVersion: false }
+                    && source[i].Album.Length > 0).ToArray();
+            lock (verificationGate) { verification.FocusedTotal = focused.Length; verification.Phase = $"Album-focused resolution for {focused.Length} recordings"; }
+            for (int start = 0; start < focused.Length; start += batchSize)
+            {
+                ct.ThrowIfCancellationRequested();
+                foreach (int i in focused.Skip(start).Take(batchSize))
+                {
+                    ct.ThrowIfCancellationRequested();
+                    lock (verificationGate) verification.Phase = $"Album-focused resolution: {verification.FocusedDone + 1}/{focused.Length}";
+                    var prior = results[i];
+                    var followUp = await MatchAsync(mb, pacer, source[i], prior.ArtistId, true, ct, albumOnly: true);
+                    // Do not discard supported IDs or overwrite them with search failure,
+                    // nor treat a competing artist as a resolution.
+                    if (followUp.RequestSucceeded && followUp.Verified && followUp.ArtistId == prior.ArtistId &&
+                        followUp.ExactTitle && followUp.ExactArtist && followUp.AlbumMatch && followUp.AlbumIdentifiesVersion)
+                    {
+                        followUp.AlbumSearchConfirmed = true;
+                        results[i] = followUp;
+                    }
+                    lock (verificationGate) { verification.FocusedDone++; UpdateCounts(results, artistEvidence); }
+                }
+                Log($"Album-focused follow-up: {Math.Min(start + batchSize, focused.Length)}/{focused.Length}");
+            }
             // Retry transient failures from BOTH passes once more, without demanding that successful records be re-queried.
             var failedIndices = Enumerable.Range(0, results.Length).Where(i => !results[i].RequestSucceeded).ToArray();
             if (failedIndices.Length > 0)
@@ -117,7 +170,6 @@ sealed partial class DesktopServer
                 lock (verificationGate) verification.Phase = $"Retrying {failedIndices.Length} failed lookups";
                 for (int start = 0; start < failedIndices.Length; start += batchSize)
                 {
-                    using var mb = CreateMbClient();
                     foreach (var i in failedIndices.Skip(start).Take(batchSize))
                     {
                         ct.ThrowIfCancellationRequested();
@@ -139,6 +191,7 @@ sealed partial class DesktopServer
                 verification.ArtistNeedsReview = audit.Artists.Count(a => a.Status != "high");
                 verification.SongHighConfidence = audit.Songs.Count(x => x.Status == "high");
                 verification.SongNeedsReview = audit.Songs.Count(x => x.Status != "high");
+                verification.SongIdentitySupported = audit.Songs.Count(x => x.SongIdentityStatus == "artist-and-song-supported");
                 UpdateCounts(results, artistEvidence);
                 verification.Running = false;
                 verification.Completed = verification.Checked == verification.Total && verification.LookupFailures == 0;
@@ -161,12 +214,12 @@ sealed partial class DesktopServer
     }
     static HttpClient CreateMbClient()
     {
-        var client = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = TimeSpan.FromSeconds(35) };
-        client.DefaultRequestHeaders.UserAgent.ParseAdd("YouTubeMusicTakeoutToLidarr/0.8.7 (https://github.com/Gost1o1/YouTube-Music-Takeout-To-Lidarr)");
+        var client = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false, AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate }) { Timeout = TimeSpan.FromSeconds(35) };
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("YouTubeMusicTakeoutToLidarr/0.9.0 (https://github.com/Gost1o1/YouTube-Music-Takeout-To-Lidarr)");
         client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
         return client;
     }
-    async Task<MatchResult> MatchAsync(HttpClient mb, RequestPacer pacer, Track track, string? corroboratedArtistId, bool secondPass, CancellationToken ct)
+    async Task<MatchResult> MatchAsync(HttpClient mb, RequestPacer pacer, Track track, string? corroboratedArtistId, bool secondPass, CancellationToken ct, bool albumOnly = false)
     {
         var title = track.Song.Trim();
         var artist = track.Artist.Trim();
@@ -176,7 +229,9 @@ sealed partial class DesktopServer
         // First pass: artist-aware query, with fallback to title only. Second pass: wider title results, supported by cross-song evidence.
         // Use the complete structured Takeout credit list only for targeted follow-up searches.
         // The primary credit remains the artist identity; collaborators must not replace it.
-        var searches = secondPass
+        var searches = albumOnly && track.Album.Length > 0
+            ? new[] { $"recording:\"{EscapeMb(title)}\" AND release:\"{EscapeMb(track.Album)}\"" }
+            : secondPass
             ? new[] { firstQuery, broadQuery }
                 .Concat(track.ArtistCredits.Skip(1).Take(3).Select(a => $"recording:\"{EscapeMb(title)}\" AND artist:\"{EscapeMb(a)}\""))
                 .Concat(track.Album.Length > 0 ? new[] { $"recording:\"{EscapeMb(title)}\" AND release:\"{EscapeMb(track.Album)}\"" } : Array.Empty<string>())
@@ -186,13 +241,26 @@ sealed partial class DesktopServer
         var candidates = new Dictionary<string, Candidate>(StringComparer.OrdinalIgnoreCase);
         foreach (var query in searches)
         {
-            var found = await SearchMbAsync(mb, pacer, query, secondPass ? 50 : 25, ct);
+            // Use the same page size on all passes so successful first-pass
+            // searches can be reused verbatim during targeted follow-ups.
+            var found = await SearchMbAsync(mb, pacer, query, 50, ct);
             if (found is null) continue;
             anySuccess = true;
             foreach (var item in found)
             {
-                if (item.RecordingId.Length > 0 && (!candidates.TryGetValue(item.RecordingId, out var previous) || item.SearchScore > previous.SearchScore))
-                    candidates[item.RecordingId] = item;
+                if (item.RecordingId.Length == 0) continue;
+                if (!candidates.TryGetValue(item.RecordingId, out var previous)) candidates[item.RecordingId] = item;
+                else
+                {
+                    // Preserve independently returned album/credit metadata across queries.
+                    foreach (var album in item.Albums)
+                        if (!previous.Albums.Contains(album, StringComparer.OrdinalIgnoreCase)) previous.Albums.Add(album);
+                    foreach (var credit in item.Credits) previous.Credits.TryAdd(credit.Key, credit.Value);
+                    previous.ArtistIds.UnionWith(item.ArtistIds);
+                    foreach (var name in item.Names)
+                        if (!previous.Names.Contains(name, StringComparer.OrdinalIgnoreCase)) previous.Names.Add(name);
+                    previous.SearchScore = Math.Max(previous.SearchScore, item.SearchScore);
+                }
             }
             // No unnecessary second call when a title + artist query already returned credible credits.
             if (!secondPass && candidates.Values.Any(x => x.SearchScore >= 85 && x.Names.Any(n => ArtistCreditMatches(artist, n)))) break;
@@ -213,7 +281,6 @@ sealed partial class DesktopServer
         }
         var sorted = scored.OrderByDescending(x => x.score).ToArray();
         if (sorted.Length == 0) return new MatchResult { RequestSucceeded = true, Ambiguous = candidates.Count > 0, Reason = candidates.Count == 0 ? "No recording returned for title" : "Artist credits differ or version/title conflict", CandidateRecordings = candidates.Values.Take(8).Select(x => x.RecordingId).ToList(), CandidateArtistIds = candidates.Values.SelectMany(x => x.ArtistIds).Distinct().Take(8).ToList(), ObservedCreditNames = candidates.Values.SelectMany(x => x.Names).Distinct().Take(8).ToList(), RecordingCandidateCount = candidates.Count };
-        var top = sorted[0];
         // Multiple releases/recording MBIDs for the same song are common. Group by credited artist ID instead of rejecting them all.
         var groups = sorted.GroupBy(x => x.id, StringComparer.OrdinalIgnoreCase)
             .Select(g => new { Id = g.Key, Score = g.Max(x => x.score), Count = g.Count(), Best = g.OrderByDescending(x => x.score).First() })
@@ -227,46 +294,44 @@ sealed partial class DesktopServer
             sorted.Where(x => x.id.Equals(best.Id, StringComparison.OrdinalIgnoreCase) &&
                 x.candidate.Albums.Any(a => Normalize(a) == Normalize(track.Album)))
                 .Select(x => x.candidate.RecordingId).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
-        bool albumIdentifiesVersion = matchingAlbumVersions.Length == 1 && best.Best.candidate.RecordingId == matchingAlbumVersions[0];
+        // Choose the album-linked recording, not simply the highest search-ranked
+        // recording, when the album result independently disambiguates versions.
+        var selected = best.Best;
+        bool albumIdentifiesVersion = matchingAlbumVersions.Length == 1;
+        if (albumIdentifiesVersion)
+        {
+            var albumCandidate = sorted.FirstOrDefault(x => x.id.Equals(best.Id, StringComparison.OrdinalIgnoreCase)
+                && x.candidate.RecordingId == matchingAlbumVersions[0]);
+            if (albumCandidate.candidate != null) selected = albumCandidate;
+        }
         bool uniqueArtist = groups.Length == 1 || best.Score >= groups[1].Score + 20;
         bool confident = best.Score >= 105 && uniqueArtist;
         return new MatchResult
         {
             RequestSucceeded = true, Verified = confident, Ambiguous = !confident,
-            ArtistId = confident ? best.Id : "", RecordingId = confident ? best.Best.candidate.RecordingId : "",
-            Confidence = best.Score, ExactTitle = TitleSimilarity(title, best.Best.candidate.Title) == 100,
-            ExactArtist = best.Best.candidate.Credits.Any(kv => ArtistCreditMatches(artist, kv.Value)),
+            ArtistId = confident ? best.Id : "", RecordingId = confident ? selected.candidate.RecordingId : "",
+            Confidence = best.Score, ExactTitle = TitleSimilarity(title, selected.candidate.Title) == 100,
+            ExactArtist = selected.candidate.Credits.Any(kv => ArtistCreditMatches(artist, kv.Value)),
             CrossSongSupport = corroboratedArtistId != null && best.Id == corroboratedArtistId,
-            AlbumMatch = track.Album.Length > 0 && best.Best.candidate.Albums.Any(a => Normalize(a) == Normalize(track.Album)),
+            AlbumMatch = track.Album.Length > 0 && selected.candidate.Albums.Any(a => Normalize(a) == Normalize(track.Album)),
             MultipleRecordingVersions = best.Count > 1,
             AlbumIdentifiesVersion = albumIdentifiesVersion,
             ArtistCandidateCount = groups.Length, RecordingCandidateCount = sorted.Length,
             CandidateArtistIds = groups.Take(8).Select(g => g.Id).ToList(),
             CandidateRecordings = sorted.Take(8).Select(g => g.candidate.RecordingId).ToList(),
-            CandidateAlbums = best.Best.candidate.Albums.Take(8).ToList(),
-            ObservedCreditNames = best.Best.candidate.Names.Take(8).ToList(),
+            CandidateAlbums = selected.candidate.Albums.Take(8).ToList(),
+            ObservedCreditNames = selected.candidate.Names.Take(8).ToList(),
             Reason = confident ? "Title and artist-credit evidence; alternate recordings grouped by artist" : "Competing artist identity or insufficient evidence"
         };
     }
     async Task<List<Candidate>?> SearchMbAsync(HttpClient client, RequestPacer pacer, string query, int limit, CancellationToken ct)
     {
         string url = "https://musicbrainz.org/ws/2/recording/?query=" + Uri.EscapeDataString(query) + "&fmt=json&limit=" + limit;
-        for (int attempt = 0; attempt < 4; attempt++)
+        var fetched = await UnifiedMusicBrainzGetAsync(client, url, pacer, ct);
+        if (fetched.Body is null) return null;
+        try
         {
-            ct.ThrowIfCancellationRequested();
-            await pacer.Wait(ct);
-            try
-            {
-                using var response = await client.GetAsync(url, ct);
-                lock (verificationGate) verification.Requests++;
-                if ((int)response.StatusCode == 429 || (int)response.StatusCode >= 500)
-                {
-                    lock (verificationGate) verification.HttpErrors++;
-                    if (attempt < 3) { lock (verificationGate) verification.Retries++; await Task.Delay(TimeSpan.FromSeconds((attempt + 1) * (attempt + 1) * 3), ct); continue; }
-                    Log($"MusicBrainz HTTP {(int)response.StatusCode} after retries for query: {query}"); return null;
-                }
-                if (!response.IsSuccessStatusCode) { Log($"MusicBrainz HTTP {(int)response.StatusCode} for query: {query}"); return null; }
-                using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
+                using var doc = JsonDocument.Parse(fetched.Body);
                 var found = new List<Candidate>();
                 if (!doc.RootElement.TryGetProperty("recordings", out var recs) || recs.ValueKind != JsonValueKind.Array) return found;
                 foreach (var rec in recs.EnumerateArray())
@@ -293,14 +358,8 @@ sealed partial class DesktopServer
                     found.Add(c);
                 }
                 return found;
-            }
-            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
-            { if (attempt < 3) { lock (verificationGate) verification.Retries++; await Task.Delay(TimeSpan.FromSeconds(3 * (attempt + 1)), ct); } }
-            catch (HttpRequestException ex)
-            { if (attempt == 3) Log("MusicBrainz network error: " + ex.Message); else { lock (verificationGate) verification.Retries++; await Task.Delay(TimeSpan.FromSeconds(3 * (attempt + 1)), ct); } }
-            catch (JsonException ex) { Log("MusicBrainz invalid JSON: " + ex.Message); return null; }
         }
-        return null;
+        catch (JsonException ex) { Log("MusicBrainz invalid JSON: " + ex.Message); return null; }
     }
     static int TitleSimilarity(string a, string b)
     {
