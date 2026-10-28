@@ -6,7 +6,8 @@ sealed partial class DesktopServer
     // Metadata and external previews are OPTIONAL, display-only evidence.
     // Never promote identity confidence, nor save downloaded media in this path.
     sealed record ReviewMediaResult(string Name, string ArtworkUrl, string PreviewUrl, string Album,
-        string Credit, string Note, string Availability = "", string SourceTitle = "", string CatalogTrackId = "");
+        string Credit, string Note, string Availability = "", string SourceTitle = "", string CatalogTrackId = "",
+        bool CatalogIdentityConfirmed = false);
     readonly Dictionary<string, ReviewMediaResult> reviewMediaCache = new(StringComparer.Ordinal);
     readonly object reviewMediaGate = new();
     readonly System.Collections.Concurrent.ConcurrentDictionary<string, Task<ReviewMediaResult>> sourceInfoTasks = new();
@@ -130,7 +131,8 @@ sealed partial class DesktopServer
         ReviewMediaResult? cached;
         lock (reviewMediaGate) reviewMediaCache.TryGetValue(cacheKey, out cached);
         if (cached != null) { await Respond(ctx, 200, cached); return; }
-        string name = candidateId.Length > 0 && item.Kind == "artist" ? "" : overrides?.Artist ?? item.Artist;
+        string name = candidateId.Length > 0 ? "" : overrides?.Artist ?? item.Artist;
+        bool catalogIdentityConfirmed = false;
         string title = overrides?.Song ?? item.Song;
         if (title is "" or "-")
         {
@@ -152,7 +154,7 @@ sealed partial class DesktopServer
                 {
                     using var doc = JsonDocument.Parse(response.Body);
                     var entityName = SafeProperty(doc.RootElement, entity == "artist" ? "name" : "title");
-                    if (entityName.Length > 0) name = entityName;
+                    if (entityName.Length > 0) { name = entityName; catalogIdentityConfirmed = true; }
                     if (entity == "recording" && entityName.Length > 0) title = entityName;
                 }
             }
@@ -178,7 +180,13 @@ sealed partial class DesktopServer
         }
         var result = media with {
             Name = candidateId.Length > 0 ? (item.Kind == "artist" ? name : title) : overrides?.Artist ?? item.Artist,
-            Album = candidateId.Length == 0 && overrides != null ? overrides.Album : media.Album
+            Album = candidateId.Length == 0 && overrides != null ? overrides.Album : media.Album,
+            // An Apple preview or a fallback source title is not proof that a
+            // MusicBrainz recording lookup returned this candidate's title.
+            CatalogIdentityConfirmed = candidateId.Length > 0 && item.Kind == "song" && catalogIdentityConfirmed,
+            Availability = candidateId.Length > 0 && item.Kind == "song" && !catalogIdentityConfirmed
+                ? "Metadata lookup failed: MusicBrainz candidate title could not be confirmed."
+                : media.Availability
         };
         lock (reviewMediaGate) { if (reviewMediaCache.Count > 300) reviewMediaCache.Clear(); reviewMediaCache[cacheKey] = result; }
         await Respond(ctx, 200, result);

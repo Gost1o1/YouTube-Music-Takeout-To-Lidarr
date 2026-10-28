@@ -5,7 +5,8 @@ sealed partial class DesktopServer
 {
     // This is a review-queue preflight, not a MusicBrainz verification pass.
     // Artist cases use conservative identity-name checks. Song cases with no
-    // raw recording candidates preserve complete Takeout metadata immediately.
+    // candidates or a bounded set of title-equivalent recording candidates
+    // preserve Takeout metadata; title similarity never verifies an MBID.
     readonly object autoClassificationGate = new();
     bool autoClassificationRunning;
     bool autoClassificationFinished;
@@ -31,7 +32,7 @@ sealed partial class DesktopServer
                 x.Disposition == "unreviewed" && x.EvidenceStatus == "current" &&
                 CompleteAutomaticMetadata(x) &&
                 ((x.Kind == "artist" && x.Candidates.Count <= 12) ||
-                 (x.Kind == "song" && x.Candidates.Count == 0))).ToArray();
+                 (x.Kind == "song" && x.Candidates.Count <= 3))).ToArray();
         }
         // A different audit must never inherit the old preflight completion.
         var signature = string.Join("|", snapshot.Select(x => x.Key + ":" + x.Song + ":" + x.Album + ":" + x.YouTubeUrl +
@@ -65,6 +66,35 @@ sealed partial class DesktopServer
                         {
                             if (item.Candidates.Count == 0)
                                 AutoSaveManualFallback(item.Key, "no-usable-candidate");
+                            else if (item.Kind == "song")
+                            {
+                                var titles = new List<string>();
+                                foreach (var candidate in item.Candidates)
+                                {
+                                    try
+                                    {
+                                        var endpoint = "https://musicbrainz.org/ws/2/recording/" + candidate.Id + "?fmt=json";
+                                        var response = await UnifiedMusicBrainzGetAsync(mb, endpoint, sharedMbPacer, CancellationToken.None);
+                                        if (response.Body == null) { titles.Clear(); break; }
+                                        using var doc = JsonDocument.Parse(response.Body);
+                                        var title = SafeProperty(doc.RootElement, "title");
+                                        if (!UsefulManualField(title)) { titles.Clear(); break; }
+                                        titles.Add(title);
+                                    }
+                                    catch (HttpRequestException) { titles.Clear(); break; }
+                                    catch (TaskCanceledException) { titles.Clear(); break; }
+                                    catch (JsonException) { titles.Clear(); break; }
+                                }
+                                if (titles.Count == item.Candidates.Count)
+                                {
+                                    var relations = titles.Select(t => SongTitleAutoRelation(item.Song, t)).ToArray();
+                                    if (relations.All(r => r.Length > 0))
+                                        AutoSaveManualFallback(item.Key,
+                                            relations.All(r => r == "exact")
+                                            ? "sole-exact-song-title-unverified"
+                                            : "sole-parenthetical-song-title-unverified");
+                                }
+                            }
                             else
                             {
                                 var names = new List<string>();
@@ -142,6 +172,23 @@ sealed partial class DesktopServer
     static bool SingleExactArtistCandidate(ReviewItem item, string candidateName) =>
         AllArtistCandidatesSameName(item, new[] { candidateName });
 
+    // Only source metadata is filed. A song title alone never establishes the
+    // artist credit, recording version, album edition or MusicBrainz identity.
+    static string SongTitleAutoRelation(string source, string candidate)
+    {
+        var a = Normalize(source); var b = Normalize(candidate);
+        if (a.Length == 0 || b.Length == 0) return "";
+        if (a == b) return "exact";
+        static string RemoveFinalQualifier(string title) =>
+            System.Text.RegularExpressions.Regex.Replace(title ?? "",
+                @"\s*\([^()]{1,80}\)\s*$", "").Trim();
+        var aBase = RemoveFinalQualifier(source);
+        var bBase = RemoveFinalQualifier(candidate);
+        if (aBase != source && Normalize(aBase) == b) return "parenthetical";
+        if (bBase != candidate && a == Normalize(bBase)) return "parenthetical";
+        return "";
+    }
+
     static void AutomaticReviewClassificationSelfTests()
     {
         var candidate = new ReviewChoice("0068ae6c-7150-42fd-b0ec-111111111111", "MusicBrainz artist candidate", "");
@@ -167,6 +214,14 @@ sealed partial class DesktopServer
         song.Album = "";
         if (CompleteAutomaticMetadata(song))
             throw new Exception("Missing song source fields must require manual completion.");
-        Console.WriteLine("PASS: pre-review artist-name checks, no-candidate song metadata, incomplete-field protection");
+        if (SongTitleAutoRelation("We Can't Stop", "We Can’t Stop") != "exact" ||
+            SongTitleAutoRelation("Victory", "Victory") != "exact" ||
+            SongTitleAutoRelation("Burn It All Down", "Burn It All Down") != "exact" ||
+            SongTitleAutoRelation("Track", "Track (Bonus Track)") != "parenthetical" ||
+            SongTitleAutoRelation("Track (Live)", "Track") != "parenthetical" ||
+            SongTitleAutoRelation("Victory", "Victorious") != "" ||
+            SongTitleAutoRelation("Fire", "Fire (Cover) Extended Mix") != "")
+            throw new Exception("Single-song title and trailing-parenthetical classifier regression.");
+        Console.WriteLine("PASS: artist checks, song title qualifiers, no-candidate source fallback, incomplete-field protection");
     }
 }

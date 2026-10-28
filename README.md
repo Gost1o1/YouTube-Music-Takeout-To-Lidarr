@@ -1,3 +1,31 @@
+# v0.9.1.15.4 — Song title source filing and reliable Previous navigation
+
+Song Review now pre-classifies complete Takeout songs whose sole recording candidate
+(or up to three title-equivalent catalog IDs) has a MusicBrainz title matching the
+source, including a single trailing parenthetical qualifier such as “(Bonus Track).”
+The browser also recognizes one **confirmed catalog-title** candidate after
+metadata loads, allowing a safe automatic source-only save when other raw IDs are
+not usable. Miley Cyrus / “We Can't Stop”, Two Steps From Hell / “Victory” and
+League of Legends / “Burn It All Down” are regression fixtures. A title alone is
+**never** promoted to a verified recording, artist, album, Lidarr import or download.
+Failed catalog lookups are offered Retry, not automatically classified.
+
+Manual Review now keeps a stable order keyed by the actual song/artist, preserves
+the active key through queue changes, and remembers viewed entries for the Previous
+button, skipping entries subsequently saved automatically. Returning from a
+refresh also prefers the saved review key instead of a drifting numeric position.
+
+**Build, self-test, publish and launch on Windows:**
+`powershell -ExecutionPolicy Bypass -File .\BUILD-AND-RUN.ps1`
+
+See `CHANGELOG-v0.9.1.15.4.md`, `TEST-V091154.md` and
+`VALIDATION-v0.9.1.15.4.md`. The source-package environment still cannot
+compile .NET natively; use Windows GitHub Actions to verify compilation.
+Avoid restarting the current EXE while a lengthy Takeout verification is still
+in memory. No fresh verification is needed to run the offline tests.
+
+---
+
 # v0.9.1.15.3 — Automatic Song Review fallback
 
 Song Review now follows the same source-metadata preservation workflow as

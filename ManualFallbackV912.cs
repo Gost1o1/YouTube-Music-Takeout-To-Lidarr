@@ -86,12 +86,16 @@ sealed partial class DesktopServer
     {
         // A single identical display name is not artist verification. It merely
         // allows source metadata to be set aside rather than requiring a click.
-        if (reason is not ("no-usable-candidate" or "sole-exact-artist-name-unverified" or "identical-artist-names-unverified"))
+        if (reason is not ("no-usable-candidate" or "sole-exact-artist-name-unverified" or "identical-artist-names-unverified"
+            or "sole-exact-song-title-unverified" or "sole-parenthetical-song-title-unverified"))
             throw new InvalidOperationException("Unknown automatic metadata classification.");
         lock (verificationGate)
         {
             var item = BuildReviewQueue().FirstOrDefault(x => x.Key == key)
                 ?? throw new InvalidOperationException("Review item no longer belongs to this music library.");
+            if ((reason is "sole-exact-song-title-unverified" or "sole-parenthetical-song-title-unverified")
+                && item.Kind != "song")
+                throw new InvalidOperationException("Song title metadata filing cannot be applied to an artist.");
             if (!CompleteAutomaticMetadata(item))
                 throw new InvalidOperationException("Automatic filing requires source artist, song, album and a valid YouTube link.");
             lock (manualFallbackLock)

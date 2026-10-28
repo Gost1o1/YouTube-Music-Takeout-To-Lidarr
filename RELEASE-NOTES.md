@@ -1,3 +1,23 @@
+# v0.9.1.15.4 — Exact-title automatic metadata filing and navigation repair
+
+- Before Song Review appears, the bounded catalog preflight identifies complete
+  source entries with zero candidates or confirmed matching song titles, including
+  one trailing parenthetical title qualifier. These are filed as **source metadata
+  for later manual import**, not as verified MusicBrainz matches.
+- A single viable candidate with a confirmed catalog title is similarly filed on
+  completion of display metadata. Missing/inaccessible catalog identity is never
+  inferred from the original song title or an Apple sample; Retry remains available.
+- Previous revisits the actual earlier review key even if the server reorders the
+  queue or a later automatic filing removes entries in between.
+- New offline regression test covers Two Steps From Hell, Miley Cyrus, League of
+  Legends, parenthetical song versions, failed lookups and back navigation.
+- Windows source ZIP includes the full build script and CI test wiring. No Lidarr
+  writes or media downloads were added. Native .NET build must run on Windows CI.
+
+See `CHANGELOG-v0.9.1.15.4.md` and `TEST-V091154.md`.
+
+---
+
 # v0.9.1.15.3 — Song Review fallback and progression
 
 Complete no-candidate songs now preserve Takeout metadata automatically, while

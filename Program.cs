@@ -51,7 +51,7 @@ sealed partial class DesktopServer
         listener = server;
         server.Prefixes.Add(address);
         server.Start();
-        Console.WriteLine("YouTube Music to Lidarr — .NET v0.9.1.15.3 (automatic song source fallback and manual continuation)");
+        Console.WriteLine("YouTube Music to Lidarr — .NET v0.9.1.15.4 (song title filing and stable review navigation)");
         Console.WriteLine("No PowerShell scripts are run. No changes to Windows execution policy.");
         Console.WriteLine("Read-only: import, inspect, and Lidarr inventory only. No downloads or imports.");
         Console.WriteLine("Local address: " + address);
