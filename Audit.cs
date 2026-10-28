@@ -31,7 +31,26 @@ sealed partial class DesktopServer
         public bool CrossSongSupport { get; set; }
         public bool MultipleRecordingVersions { get; set; }
         public bool AlbumIdentifiesVersion { get; set; }
+        public bool AlbumSearchConfirmed { get; set; }
+        public string SongIdentityStatus { get; set; } = "";
         public string Alternatives { get; set; } = "";
+        public string AppleStatus { get; set; } = "not-checked";
+        public string DeezerStatus { get; set; } = "not-checked";
+        public string ExternalStatus { get; set; } = "not-checked";
+        public string AppleTrackId { get; set; } = "";
+        public string AppleUrl { get; set; } = "";
+        public string DeezerTrackId { get; set; } = "";
+        public string DeezerUrl { get; set; } = "";
+        public bool AppleAlbumMatch { get; set; }
+        public bool DeezerAlbumMatch { get; set; }
+        public bool RecoveredMusicBrainzIdentity { get; set; }
+        public string Isrc { get; set; } = "";
+        public string IsrcStatus { get; set; } = "not-checked";
+        public string IsrcCandidateRecordingIds { get; set; } = "";
+        public int IsrcMatchingCandidates { get; set; }
+        public string RecoveryDecision { get; set; } = "not-checked";
+        public string PriorEvidenceRestored { get; set; } = "";
+        public string IsrcCandidateValidationDetails { get; set; } = "";
     }
     sealed class ArtistAudit
     {
@@ -44,6 +63,10 @@ sealed partial class DesktopServer
         public int UnresolvedSongs { get; set; }
         public int ExactSupportedTitles { get; set; }
         public bool AlreadyInLidarr { get; set; }
+        public string ArtistIdRecoveryStatus { get; set; } = "not-checked";
+        public string ArtistIdRecoverySource { get; set; } = "";
+        public string ArtistIdCandidates { get; set; } = "";
+        public string LidarrMbIdCandidate { get; set; } = "";
         public string SourceSongList { get; set; } = "";
         public string CorroboratedSongList { get; set; } = "";
         public string SourceOnlySongList { get; set; } = "";
@@ -62,11 +85,11 @@ sealed partial class DesktopServer
             var t = source[i]; var r = results[i];
             // A MusicBrainz search score is a ranking signal, not a calibrated confidence probability.
             var strong = r is not null && r.Verified && r.ExactTitle && r.ExactArtist &&
-                (!r.MultipleRecordingVersions || r.AlbumIdentifiesVersion);
+                (!r.MultipleRecordingVersions || (r.AlbumIdentifiesVersion && r.AlbumSearchConfirmed));
             var why = r is null || !r.RequestSucceeded ? "MusicBrainz request unsuccessful" :
                 !r.Verified ? r.Reason : !r.ExactTitle ? "Title differs after normalization" :
                 !r.ExactArtist ? "Artist supported only by cross-song evidence" :
-                r.MultipleRecordingVersions && !r.AlbumIdentifiesVersion ? "Multiple recordings for same artist; source album does not uniquely identify recording version" :
+                r.MultipleRecordingVersions && !(r.AlbumIdentifiesVersion && r.AlbumSearchConfirmed) ? "Artist and title supported; exact recording version is not independently established" :
                 "Exact title and artist; recording version supported";
             audit.Songs.Add(new SongAudit {
                 Row = i + 1, Artist = t.Artist, AllArtistCredits = string.Join(" | ", t.ArtistCredits), Song = t.Song, Album = t.Album, YouTubeUrl = t.YouTubeUrl,
@@ -78,6 +101,9 @@ sealed partial class DesktopServer
                 AlbumMatch = r?.AlbumMatch ?? false, CrossSongSupport = r?.CrossSongSupport ?? false,
                 MultipleRecordingVersions = r?.MultipleRecordingVersions ?? false,
                 AlbumIdentifiesVersion = r?.AlbumIdentifiesVersion ?? false,
+                AlbumSearchConfirmed = r?.AlbumSearchConfirmed ?? false,
+                SongIdentityStatus = r is { Verified: true, ExactTitle: true, ExactArtist: true } ? "artist-and-song-supported" :
+                    r is { Verified: true } ? "provisional-match" : r is { RequestSucceeded: false } ? "lookup-failed" : "unresolved",
                 Alternatives = string.Join("; ", r?.CandidateArtistIds ?? new List<string>())
             });
         }
@@ -126,13 +152,20 @@ sealed partial class DesktopServer
         var sb = new StringBuilder();
         if (kind == "artists")
         {
-            sb.Append(CsvLine("Artist", "Artist MBID", "Confidence", "Explanation", "Unique source songs", "High-confidence song titles", "Unresolved source titles", "Already in Lidarr", "Source songs (names)", "High-confidence overlapping songs (names)", "Remaining source songs (names)", "MusicBrainz catalog completeness", "Total distinct MusicBrainz catalog songs", "MusicBrainz-only songs"));
-            foreach (var a in audit.Artists) sb.Append(CsvLine(a.SourceName,a.ArtistId,a.Status,a.Reason,a.SourceSongs,a.VerifiedSongs,a.UnresolvedSongs,a.AlreadyInLidarr,a.SourceSongList,a.CorroboratedSongList,a.SourceOnlySongList,a.CatalogCoverage,"Unknown",a.MusicBrainzOnlyTitles));
+            sb.Append(CsvLine("Artist", "Artist MBID", "Confidence", "Explanation", "Unique source songs", "High-confidence song titles", "Unresolved source titles", "Already in Lidarr", "Source songs (names)", "High-confidence overlapping songs (names)", "Remaining source songs (names)", "MusicBrainz catalog completeness", "Total distinct MusicBrainz catalog songs", "MusicBrainz-only songs", "Externally corroborated source song count", "Externally corroborated source song titles",
+                "Artist ID recovery status", "Artist ID recovery source", "Artist ID candidates", "Lidarr MBID candidate"));
+            foreach (var a in audit.Artists)
+            {
+                var externalTitles = audit.Songs.Where(s => s.Artist.Equals(a.SourceName, StringComparison.OrdinalIgnoreCase) &&
+                    (s.ExternalStatus is "one-catalog-supports-title-and-artist" or "both-catalogs-support-title-and-artist"))
+                    .Select(s => s.Song).Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(s => s).ToArray();
+                sb.Append(CsvLine(a.SourceName,a.ArtistId,a.Status,a.Reason,a.SourceSongs,a.VerifiedSongs,a.UnresolvedSongs,a.AlreadyInLidarr,a.SourceSongList,a.CorroboratedSongList,a.SourceOnlySongList,a.CatalogCoverage,"Unknown",a.MusicBrainzOnlyTitles,externalTitles.Length,string.Join(" | ",externalTitles),a.ArtistIdRecoveryStatus,a.ArtistIdRecoverySource,a.ArtistIdCandidates,a.LidarrMbIdCandidate));
+            }
         }
         else
         {
-            sb.Append(CsvLine("Source row", "YouTube artist", "All Takeout artist credits", "YouTube song", "YouTube album", "YouTube link", "MusicBrainz artist ID", "MusicBrainz recording ID", "Confidence", "Evidence/remaining issue", "MB search score (NOT confidence probability)", "Exact title", "Artist credit agrees", "Album agrees", "Cross-song support", "Multiple recording versions", "Album uniquely distinguishes version among retrieved candidates", "Alternate artist IDs"));
-            foreach (var a in audit.Songs) sb.Append(CsvLine(a.Row,a.Artist,a.AllArtistCredits,a.Song,a.Album,a.YouTubeUrl,a.ArtistId,a.RecordingId,a.Status,a.Reason,a.EvidenceScore,a.ExactTitle,a.ExactArtist,a.AlbumMatch,a.CrossSongSupport,a.MultipleRecordingVersions,a.AlbumIdentifiesVersion,a.Alternatives));
+            sb.Append(CsvLine("Source row", "YouTube artist", "All Takeout artist credits", "YouTube song", "YouTube album", "YouTube link", "MusicBrainz artist ID", "MusicBrainz recording ID", "Confidence", "Evidence/remaining issue", "MB search score (NOT confidence probability)", "Exact title", "Artist credit agrees", "Album agrees", "Cross-song support", "Multiple recording versions", "Album uniquely distinguishes version among retrieved candidates", "Alternate artist IDs", "Song identity status (separate from exact recording)", "Targeted album query corroborates recording", "Apple song & artist", "Deezer song & artist", "External catalog evidence", "Apple album agrees", "Deezer album agrees", "Apple track ID", "Apple link", "Deezer track ID", "Deezer link", "New targeted MusicBrainz candidate from external album", "Deezer ISRC", "ISRC status", "ISRC candidate recording IDs", "ISRC matching candidate count", "Identifier recovery decision", "Prior evidence restored", "ISRC candidate validation details"));
+            foreach (var a in audit.Songs) sb.Append(CsvLine(a.Row,a.Artist,a.AllArtistCredits,a.Song,a.Album,a.YouTubeUrl,a.ArtistId,a.RecordingId,a.Status,a.Reason,a.EvidenceScore,a.ExactTitle,a.ExactArtist,a.AlbumMatch,a.CrossSongSupport,a.MultipleRecordingVersions,a.AlbumIdentifiesVersion,a.Alternatives,a.SongIdentityStatus,a.AlbumSearchConfirmed,a.AppleStatus,a.DeezerStatus,a.ExternalStatus,a.AppleAlbumMatch,a.DeezerAlbumMatch,a.AppleTrackId,a.AppleUrl,a.DeezerTrackId,a.DeezerUrl,a.RecoveredMusicBrainzIdentity,a.Isrc,a.IsrcStatus,a.IsrcCandidateRecordingIds,a.IsrcMatchingCandidates,a.RecoveryDecision,a.PriorEvidenceRestored,a.IsrcCandidateValidationDetails));
         }
         return new UTF8Encoding(true).GetBytes(sb.ToString());
     }

@@ -1,23 +1,29 @@
-# Publishing v0.8.5 to GitHub
+# v0.9.0.3 GitHub update note
+
+This source ZIP fixes the read-only Lidarr inventory endpoint 400 error by adding required numeric `artistId` filters to track/trackfile queries. Confirm a successful Windows build, self-test, and comparison before publishing a public release. Review the project diff, commit only source, and keep the user's private Takeout, audits and API keys out of the repo.
+
+---
+
+# Preparing the v0.9.0 update to GitHub
 
 Repository: https://github.com/Gost1o1/YouTube-Music-Takeout-To-Lidarr
 
-To update **your existing local clone**, copy the content of this source folder into the repository root (without copying `bin/`, `obj/`, or `publish/`). Review the diff, then from the repository root:
+This source ZIP has **not** been pushed, built on Windows, or released. Make a backup/commit of existing files before replacing them.
 
 ```powershell
-git checkout -b feature/v0.8.5-confidence-audit
+git clone https://github.com/Gost1o1/YouTube-Music-Takeout-To-Lidarr.git
+cd YouTube-Music-Takeout-To-Lidarr
+git checkout -b feature/v0.9.0-independent-catalogs
+# Copy v0.9.0 source into this repo, preserving the .git folder.
+dotnet build YouTubeMusicToLidarr.csproj -c Release -r win-x64
+dotnet run --project YouTubeMusicToLidarr.csproj -c Release --no-build -- --self-test
 git status
-git add Program.cs Verification.cs Audit.cs YouTubeMusicToLidarr.csproj AppUI/index.html README.md RELEASE-NOTES.md SECURITY.md LICENSE GITHUB-UPDATE.md
-git commit -m "Add separate artist and song confidence audits"
-git push -u origin feature/v0.8.5-confidence-audit
+git diff --check
+git add Program.cs Verification.cs Audit.cs SupplementalEvidence.cs YouTubeMusicToLidarr.csproj AppUI README.md RELEASE-NOTES.md SECURITY.md TESTING.md GITHUB-UPDATE.md SHA256SUMS.txt .gitignore .github/workflows/build-windows.yml
+git commit -m "Add optional independent catalog evidence and prior audit import"
+git push -u origin feature/v0.9.0-independent-catalogs
 ```
 
-Open a pull request from that branch to your default branch. **Do not push until the Windows publish command succeeds and the changes have been reviewed.** Don't commit binaries, API keys, Takeout archives, logs, or CSV exports containing your private library.
+Open a pull request, wait for GitHub Actions Windows build and offline self-tests to pass. Only then consider a test release. Do not include original Google Takeout ZIPs, API keys, Lidarr configs, private audit CSVs or `publish/` in Git.
 
-Suggested pull request title: `v0.8.5: evidence-based artist and song verification audit`
-
-Suggested description:
-
-> Adds separate artist and recording confidence classifications, per-record evidence and artist/song-list CSV exports, and explicit partial MusicBrainz catalog-coverage reporting. Keeps the read-only .NET workflow, original wizard interface, and fresh batched verification. Does not import any data to Lidarr. Needs a Windows compile and real-run smoke test before merge.
-
-This package does not automatically push code to GitHub.
+Expected report fields are described in `README.md` and `TESTING.md`. The Windows CI artifact is a **development build**, not yet a final standalone one-file portable executable.

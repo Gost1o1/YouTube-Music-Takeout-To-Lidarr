@@ -1,11 +1,139 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>YouTube Music Takeout to Lidarr</title>
-<style>
+<link rel="stylesheet" href="/flow918.css"><style>
 :root{font-family:Arial,'Segoe UI',sans-serif;color:#0b0b0b;background:#fafafa}*{box-sizing:border-box}html,body{margin:0;min-height:100%;font-size:17px}body{padding:27px 28px}button,input{font:inherit}button{cursor:pointer}button:disabled{cursor:not-allowed;opacity:.48}#app{width:100%;max-width:1200px;margin:auto;border:1px solid #e3e3e3;border-radius:40px;background:#fbfbfb;padding:32px 36px 44px;min-height:460px}.progress-track{height:12px;border-radius:50px;background:#ededed;overflow:hidden}.progress-fill{height:100%;background:#347fdf;transition:width .25s}.step{font-size:17px;text-align:right;color:#777;margin:13px 0 26px}.divider{border-top:1px solid #e6e6e6}.view{text-align:center;padding:40px 0 6px}.view.compact{padding-top:26px}.symbol{font-size:31px;color:#777;margin:12px 0 26px}.symbol.ok{color:#0a9d4d;font-size:37px}h1{font-size:39px;line-height:1.2;margin:22px 0 24px;font-weight:750}h2{font-size:26px;margin:22px 0 17px}p{line-height:1.55}.lead{font-size:25px;line-height:1.55;margin:22px auto 27px;max-width:1030px}.muted{color:#747474}.fine{font-size:17px;color:#747474}.narrow{max-width:840px;margin-left:auto;margin-right:auto}.cta{width:min(100%,800px);border:0;border-radius:50px;background:#090909;color:white;font-weight:700;font-size:21px;min-height:70px;padding:16px 25px;display:block;margin:19px auto}.cta:hover:not(:disabled){background:#2c2c2c}.cta.outline{border:2px solid #d6d6d6;background:transparent;color:#555;font-weight:400}.cta.outline:hover:not(:disabled){background:#f0f0f0}.back{text-align:left;margin:20px 0 0}.back button{border:0;background:transparent;color:#888;font-size:15px;padding:5px 18px}.back button:hover{text-decoration:underline}.two-buttons{padding:10px 0 0}.two-buttons .cta{margin:14px auto}.library-section{max-width:1050px;margin:auto}.counts{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin:16px auto 24px}.count{border:1px solid #e1e1e1;border-radius:18px;padding:24px 12px;background:transparent}.count strong{display:block;font-size:40px}.count span{display:block;color:#666;font-size:21px;margin-top:8px}.tabletitle{text-align:left;font-weight:700;font-size:23px;margin:28px 0 11px}.scrolltable{border:1px solid #e1e1e1;border-radius:16px;overflow:auto;max-height:375px;text-align:left}table{border-collapse:collapse;width:100%}th,td{padding:16px 18px;border-bottom:1px solid #e7e7e7;font-size:17px}th{position:sticky;top:0;background:#fafafa}td a{color:#2474d4}.field{display:block;width:min(100%,800px);margin:18px auto;border:1px solid #d1d1d1;border-radius:15px;background:white;height:68px;text-align:center;padding:14px;font-size:21px}.connection-copy{font-size:21px;line-height:1.65}.connection-copy strong{display:block;margin-top:10px}.splash{padding:30px 0 70px}.splash .bigcheck{color:#0ca657;font-size:54px;margin:36px 0}.splash h2{font-size:28px}.text-status{font-size:18px;color:#777}.message{font-size:16px;color:#bb2929;text-align:center;max-width:880px;margin:22px auto}.info{color:#777;font-size:17px}.box-note{max-width:840px;margin:22px auto;color:#666;font-size:17px}.verification{max-width:1050px;text-align:left;margin:42px auto}.verification strong{font-size:20px}.verification .row{display:flex;justify-content:space-between;color:#777;font-size:17px;margin:10px 0 34px}.verification .progress-track{height:11px;margin-top:18px}.disabled-note{color:#777;font-size:15px;margin-top:18px}.address{font-size:14px;color:#777;margin:14px auto}.hidden{display:none}@media(max-width:720px){body{padding:8px}#app{border-radius:22px;padding:21px 16px}.view{padding-top:28px}h1{font-size:29px}.lead{font-size:19px}.cta{font-size:17px;min-height:58px}.counts{gap:8px}.count strong{font-size:29px}th,td{padding:9px;font-size:13px}.step{font-size:14px}}
+
+/* Gost1o1 brand palette: centered layout, original wizard structure preserved. */
+:root{--brand:#17ed37;--forest:#052911;--forest-deep:#031b0b;--outline:#cfe6d3;--muted:#657568}
+body{background:linear-gradient(155deg,#eaf5ec 0%,#f5f9f5 55%,#e3f1e6 100%);color:#08180d}
+#app{background:#ffffff;border-color:var(--outline);box-shadow:0 10px 38px rgba(3,35,13,.06)}
+.progress-fill{background:linear-gradient(90deg,#0aa72b,var(--brand))}
+.cta{background:var(--forest);color:white}
+.cta:hover:not(:disabled){background:#14582b}
+.cta.outline{border-color:#b7d7bd;color:var(--forest);background:white}
+.cta.outline:hover:not(:disabled){background:#f0faf1}
+.count,.scrolltable{border-color:var(--outline)}
+.field{border-color:#bad6c0}
+a,td a{color:#087a2c}
+.symbol.ok,.splash .bigcheck{color:#098b2e}
+.message{color:#a02b2b}
+.step,.fine,.muted,.info,.verification .row,.box-note{color:var(--muted)}
+.view,.audit-report{text-align:center}
+.eta-block{display:flex;justify-content:center;align-items:center;gap:36px;flex-wrap:wrap;margin:10px auto 28px;max-width:840px;padding:16px;border:1px solid var(--outline);border-radius:18px;background:#f6fbf7}
+.eta-block>div{text-align:center;min-width:160px}
+.eta-block strong{display:block;font-size:21px;color:var(--forest)}
+.eta-block span{font-size:14px;color:var(--muted)}
+@media(max-width:720px){.eta-block{gap:14px}.eta-block>div{min-width:120px}}
+
+/* v0.8.9: opt-in extra catalog research, centered without changing the wizard */
+.catalog-panel{max-width:840px;margin:22px auto;padding:24px;border:1px solid var(--outline);border-radius:20px;background:#f7fbf8;text-align:center}
+.catalog-panel h2{font-size:23px;margin:8px auto 12px}
+.catalog-panel p{font-size:16px;color:var(--muted);margin:10px auto}
+.catalog-panel .cta{min-height:56px;font-size:18px;margin:16px auto}
+.catalog-panel input[type=file]{display:block;max-width:100%;margin:12px auto;color:var(--forest);font-size:15px}
+.catalog-panel label{display:block;margin:10px auto;font-size:15px;color:var(--forest)}
+.catalog-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin:18px auto}
+.catalog-stats div{padding:11px;border-radius:12px;border:1px solid var(--outline);background:#fff}
+.catalog-stats strong{display:block;font-size:23px;color:var(--forest)}
+.catalog-stats span{display:block;font-size:13px;color:var(--muted)}
+@media(max-width:720px){.catalog-panel{padding:16px}.catalog-panel h2{font-size:19px}}
+
+/* Release-aware, centered planning summary; preserve original green wizard palette. */
+.migration-summary{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin:20px auto 24px;max-width:910px;text-align:center}
+.migration-summary-group{border:1px solid #cbe3d0;background:#ffffffaa;border-radius:20px;padding:13px 15px;min-width:0}
+.migration-summary-group:nth-child(5),.migration-summary-group:nth-child(6){grid-column:1/-1}
+.migration-summary-group h3{font-size:18px;margin:4px 0 10px;color:#08451c}
+.migration-summary-group h3 small{font-size:13px;font-weight:400;color:#587361}
+.migration-summary-group .catalog-stats{margin:10px auto;max-width:100%;gap:10px}
+.migration-summary-group .catalog-stats > div{background:#f5faf5;border:1px solid #d4ead7;min-width:0}
+.migration-summary-group .catalog-stats strong{color:#08451c}
+@media(max-width:720px){.migration-summary{grid-template-columns:1fr}.migration-summary-group:nth-child(5),.migration-summary-group:nth-child(6){grid-column:auto}}
+
+/* v0.9.0.7: centered, keyboard-accessible, album-level release planning. */
+.category-tile{border:1px solid #d4ead7;background:#f5faf5;border-radius:12px;padding:11px;min-width:0;cursor:pointer;color:#08451c}
+.category-tile:hover{background:#eaf7ee}
+.category-tile strong{display:block;font-size:23px}
+.category-tile span{display:block;font-size:13px;color:#587361}
+.inventory-detail-panel{border:1px solid #cde6d1;border-radius:18px;padding:18px;margin:15px auto;background:#fff;text-align:center}
+.inventory-detail-panel h3{font-size:20px}
+.inventory-detail-panel input{width:min(100%,520px);padding:12px;border-radius:11px;border:1px solid #b9dcc0;text-align:center}
+.inventory-results{max-height:365px;overflow:auto}
+.inventory-item{display:flex;flex-direction:column;border-bottom:1px solid #dce9df;padding:10px;text-align:center;gap:3px}
+.inventory-item strong{font-size:14px;color:#08451c}
+.inventory-item span,.inventory-item small{color:#52675a;font-size:12px}
+
+.album-review-panel{border:1px solid #cde6d1;border-radius:18px;background:#fff;margin:20px auto;padding:18px;text-align:center;max-width:880px}
+.album-review-panel h3{font-size:21px;color:var(--forest);margin:6px auto}
+.album-review-panel #album-group-filter{width:min(100%,540px);height:45px;padding:8px 16px;border:1px solid #bad6c0;border-radius:12px;display:block;margin:8px auto 14px;text-align:center;font-size:16px}
+.album-review-scroll{max-height:470px;overflow:auto;padding:4px 9px}
+.album-choice-card{border:1px solid #d3e8d6;border-radius:15px;background:#f5faf6;margin:12px auto;padding:16px;max-width:760px;text-align:center}
+.album-choice-card[hidden]{display:none}
+.album-choice-card h4{font-size:17px;margin:2px auto 8px;color:#06471b}
+.album-choice-card p{font-size:14px!important}
+.album-choice-card label{display:block;margin:8px auto 4px}
+.album-choice-card select{width:min(100%,620px);padding:10px;border:1px solid #b5d5bc;border-radius:9px;background:white;color:#153c22;font-size:15px}
+.album-approve-btn{display:block;margin:9px auto 12px;background:#053717;color:white;padding:11px 20px;border:0;border-radius:12px;cursor:pointer;font-size:15px}
+.album-approve-btn:disabled{background:#aeb8b0;cursor:not-allowed}
+.album-choice-card details{color:#315841;text-align:left;font-size:13px;margin:8px auto;max-width:670px}
+.album-choice-card details summary{cursor:pointer;text-align:center}
+.album-choice-card details li{margin:5px auto}
+.staging-panel{border:1px solid #cde6d1;border-radius:18px;background:#fff;padding:18px;margin:20px auto;max-width:880px;text-align:center}
+.staging-panel h3{color:#06471b;font-size:21px;margin:10px auto}
+.staging-list{max-height:360px;overflow:auto;margin:12px auto;padding:6px;max-width:740px}
+.staging-item{display:flex;align-items:center;justify-content:center;text-align:center;gap:12px;padding:11px 13px;border:1px solid #d6e8d8;border-radius:12px;margin:7px auto;background:#f7fbf7}
+.staging-item input{width:20px;height:20px;accent-color:#06712a;flex:none}
+.staging-item strong{display:block;color:#093c19}.staging-item small{color:#516b59;display:block;margin-top:3px}
+.staging-item.flagged{border-color:#e0cda3}
+.staging-actions{display:flex;justify-content:center;align-items:center;gap:10px;flex-wrap:wrap;margin:10px auto}
+.staging-actions button{background:#063c1a;color:white;padding:10px 18px;border:0;border-radius:12px;cursor:pointer}
+.staging-actions button.secondary{background:white;border:1px solid #a9cbb2;color:#063c1a}
+.staging-input{display:block;margin:12px auto;width:min(100%,580px);padding:12px;border:1px solid #bad6c0;border-radius:10px;text-align:center}
+.staging-panel .fine{max-width:780px}
+.build-version{font-size:12px;color:#536c57;text-align:right;margin:3px 0 8px;letter-spacing:.03em}
+
+/* v0.9.1.7: durable, review-only decisions. Small, bounded browser list. */
+.review-note{border:1px solid #bdd9c5;border-radius:16px;background:#f6fbf7;padding:17px;margin:18px auto;max-width:900px;text-align:center}
+.review-note h2{margin:2px 0 7px;color:#073e20}
+.review-filter-row{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin:12px auto}
+.review-filter-row input,.review-filter-row select{min-width:180px;flex:1;max-width:380px;border:1px solid #b9d7c0;background:#fff;border-radius:10px;padding:10px}
+.review-entry{border:1px solid #d3e7d7;border-radius:12px;background:#fff;margin:10px 0;padding:14px;text-align:left;overflow-wrap:anywhere}
+.review-entry h4{margin:0 0 5px;color:#104727}
+.review-entry .review-fields{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:9px}
+.review-entry select,.review-entry textarea{width:100%;min-width:0;border:1px solid #b4d2bc;border-radius:8px;padding:8px;background:#fff;color:#153c24}
+.review-entry textarea{grid-column:1/-1;resize:vertical;min-height:50px}
+.review-entry button{background:#074322;color:white;border:0;border-radius:10px;padding:9px 17px;margin-top:9px;cursor:pointer}
+.review-scroll{max-height:510px;overflow:auto;padding:4px}
+.review-stale{color:#8f3b1c;font-weight:700}
+@media(max-width:640px){.review-entry .review-fields{grid-template-columns:1fr}}
 </style></head><body><main id="app"></main><script>
 const SESSION='__LOCAL_SESSION_TOKEN__';
-const state={step:1,archive:'',tracks:[],artists:[],lidarr:'http://127.0.0.1:8686',key:'',busy:false,error:'',connectionStage:'',verificationStage:'prepare',found:false,hasData:false,verify:null,verifyPolling:false};
+const BUILD_VERSION='v0.9.1.15.3';
+function durationLabel(seconds){if(seconds==null||!Number.isFinite(seconds)||seconds<0)return 'Calculating…';seconds=Math.floor(seconds);const h=Math.floor(seconds/3600),m=Math.floor(seconds%3600/60),sec=seconds%60;return h?`${h}h ${m}m`:m?`${m}m ${sec}s`:`${sec}s`}
+function etaMarkup(v,total,checked){const elapsed=v.elapsedSeconds||0;if(v.importedAuditOnly)return `<div class="eta-block" aria-live="off"><div><span>Evidence source</span><strong>Imported CSV</strong></div><div><span>Full verification</span><strong>Not run</strong></div><div><span>Processing time</span><strong>Not applicable</strong></div></div>`;const passTwo=(v.phase||'').startsWith('Second pass');const focused=(v.phase||'').startsWith('Album-focused');const secondTotal=v.secondPassTotal||0;const secondDone=v.secondPassDone||0;let remaining=null;let speed='Calculating…';if(elapsed>=30&&checked>=10){const rate=checked/elapsed;speed=`${(rate*60).toFixed(1)} songs/min`;if(focused&&(v.focusedDone||0)>=5){const elapsedFocused=Math.max(1,elapsed-(v.firstPassSeconds||0));remaining=((v.focusedTotal||0)-(v.focusedDone||0))*elapsedFocused/Math.max(1,v.focusedDone||1)}else if(passTwo&&secondDone>=5){const secondElapsed=Math.max(1,elapsed-(v.firstPassSeconds||0));remaining=(secondTotal-secondDone)*secondElapsed/Math.max(1,secondDone)}else if(!passTwo){remaining=(total-checked)/rate;}}const status=!v.running?(v.failed?'Stopped: error':v.cancelled?'Cancelled':'Complete'):focused?'Album-focused follow-up':passTwo?'Second verification pass':'First verification pass';const eta=!v.running?(v.failed||v.cancelled?'Unavailable':'Finished'):focused&&(v.focusedDone||0)<5?'Calculating album follow-up…':passTwo&&secondDone<5?'Recalculating for second pass…':durationLabel(remaining);return `<div class="eta-block" aria-live="off"><div><span>Elapsed time</span><strong>${durationLabel(elapsed)}</strong></div><div><span>Estimated remaining</span><strong>${eta}</strong></div><div><span>Verification speed</span><strong>${speed}</strong></div></div>`}
+const state={step:1,archive:'',tracks:[],artists:[],lidarr:'http://127.0.0.1:8686',key:'',busy:false,error:'',connectionStage:'',verificationStage:'progress',pipeline:null,found:false,hasData:false,verify:null,verifyPolling:false,catalog:null,catalogPolling:false,recovery:null,recoveryPolling:false,inventory:null,inventoryPolling:false,releaseGroups:[],releaseGroupsLoaded:false,inventoryItems:[],inventoryItemsLoaded:false,inventoryListCategory:"",inventoryListType:"song",stagingQueue:[],stagingLoaded:false,stagingSelected:new Set(),stagingFilter:"",reviewQueue:null,reviewFilter:"",reviewMode:"all"};
 const el=document.getElementById('app');
+// A browser-refresh checkpoint, scoped to the current local .NET server session.
+// Store navigation and unsaved candidate choices only: NEVER save API keys,
+// GitHub OAuth tokens, Takeout contents, media URLs, or application secrets.
+const NAVIGATION_KEY='ytm-lidarr-navigation-v1:'+SESSION;
+let navigationReady=false;
+function readNavigation(){
+ try{
+  const item=JSON.parse(sessionStorage.getItem(NAVIGATION_KEY)||'null');
+  if(!item||item.schema!==1)return null;
+  return item;
+ }catch{return null}
+}
+function rememberNavigation(){
+ if(!navigationReady)return;
+ try{
+  sessionStorage.setItem(NAVIGATION_KEY,JSON.stringify({
+   schema:1,step:state.step,
+   flow:window.Flow918?.active?window.Flow918.captureNavigation():null
+  }));
+ }catch{} // Storage disabled/full: live server recovery remains available.
+}
+
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const btn=(label,action,kind='',disabled=false)=>`<button class="cta ${kind}" ${disabled||state.busy?'disabled':''} onclick="${action}">${label}</button>`;
 const back=(n)=>`<div class="back"><button onclick="changeStep(${n})">← Back</button></div>`;
@@ -13,24 +141,430 @@ async function api(name,data={}){let r;try{r=await fetch('/api/'+name,{method:'P
 function changeStep(n){state.step=n;state.error='';state.connectionStage='';render()}
 function alertError(e){state.busy=false;state.connectionStage='';state.error=e?.message||String(e);render()}
 function table(rows){return `<div class="scrolltable"><table><thead><tr><th>#</th><th>Artist</th><th>Song</th><th>YouTube Link</th></tr></thead><tbody>${rows.map((r,i)=>`<tr><td>${i+1}</td><td>${esc(r.Artist)}</td><td>${esc(r.Song)}</td><td>${/^https:\/\/www\.youtube\.com\/watch\?v=[A-Za-z0-9_-]{11}$/.test(r.YouTubeUrl||'')?`<a href="${esc(r.YouTubeUrl)}" target="_blank" rel="noopener noreferrer">View ↗</a>`:'—'}</td></tr>`).join('')}</tbody></table></div>`}
-function render(){let c='';const s=state.step;
+function unifiedProgressPage(){
+ const p=state.pipeline||{};
+ const total=p.songsTotal||state.tracks.length||1,checked=p.songsChecked||0;
+ const artists=p.totalArtists||new Set(state.tracks.map(x=>(x.Artist||'').toLowerCase())).size||1;
+ const matched=p.artistsMatched||0;
+ const overall=Number(p.progressPercent||0);
+ const portion=(x,t)=>Math.round(100*x/Math.max(1,t));
+ const secs=p.elapsedSeconds||0;
+ let remaining='Calculating…';
+ // An estimate is only available during the initial scan. Other stages have
+ // variable request counts; don't display a misleading ETA.
+ if(p.done)remaining='Finished';
+ else if(p.failed)remaining='Unavailable';
+ else if(p.phase==='verification'&&checked>=30&&secs>=30){
+   const est=(total-checked)*secs/checked;
+   remaining=durationLabel(est)+' + follow-up checks';
+ }
+ const rate=checked>0&&secs>0?(checked*60/secs).toFixed(1)+' songs/min':'Calculating…';
+ return `<section class="view"><h1>Verifying Your Music Library</h1>
+ <div class="verification">
+ <strong>Overall Progress</strong><div class="progress-track"><div class="progress-fill" style="width:${overall}%"></div></div>
+ <div class="row"><span>${p.done?'Complete':'Verifying and matching your music'}</span><span>${overall.toFixed(0)}%</span></div>
+ <strong>Recordings Checked</strong><div class="progress-track"><div class="progress-fill" style="width:${portion(checked,total)}%"></div></div>
+ <div class="row"><span>${checked} of ${total} checked</span><span>${portion(checked,total)}%</span></div>
+ <strong>Unique Artists Resolved</strong><div class="progress-track"><div class="progress-fill" style="width:${portion(matched,artists)}%"></div></div>
+ <div class="row"><span>${matched} of ${artists} identified</span><span>${portion(matched,artists)}%</span></div>
+ </div><div class="eta-block"><div><span>Elapsed time</span><strong>${durationLabel(secs)}</strong></div>
+ <div><span>Time remaining</span><strong>${remaining}</strong></div>
+ <div><span>Verification speed</span><strong>${rate}</strong></div></div>
+ ${p.failed?`<p class="message">${esc(p.error||'Verification could not finish. No Lidarr changes were made.')}</p>${btn('Retry Verification','restartUnifiedPipeline()')}`:''}
+ ${p.done?btn('Continue to Manual Review','openUnifiedReview()'):''}</section>`;
+}
+let unifiedPolling=false;
+async function restartUnifiedPipeline(){
+ try{await api('pipeline/start');state.pipeline={running:true};render();if(!unifiedPolling){unifiedPolling=true;pollUnifiedPipeline()}}
+ catch(e){alertError(e)}
+}
+async function openUnifiedReview(){
+ try{state.inventory=await api('lidarr/inventory/status');await window.Flow918.open('manual')}
+ catch(e){alertError(e)}
+}
+async function pollUnifiedPipeline(){
+ try{
+  const p=await api('pipeline/status');state.pipeline=p;
+  if(state.step===6&&!window.Flow918?.active)render();
+  if(p.running){setTimeout(pollUnifiedPipeline,1150);return}
+  unifiedPolling=false;
+  if(p.done&&state.step===6){
+   state.inventory=await api('lidarr/inventory/status');
+   await openUnifiedReview();
+  }
+ }catch(e){unifiedPolling=false;state.error=e.message;render()}
+}
+function render(){if(window.Flow918?.active){window.Flow918.render();return}let c='';const s=state.step;
 if(s===1)c=`<section class="view"><h1 style="margin:18px 0 32px">Choose Your Data</h1><div class="two-buttons">${btn('Choose Google Account','changeStep(2)')}${btn('Downloaded Data File','changeStep(3)','outline')}</div></section>`;
 if(s===2)c=`<section class="view compact"><h1>Prepare Your YouTube Music Export</h1><p class="lead">You're about to be directed to Google Takeout to download a copy of your<br>YouTube Music library.</p><p class="lead">On Google's website, click <strong>Next step</strong>, then change the <strong>File size to 50 GB.</strong></p><p class="lead muted">Don't worry! Your music library metadata is likely much smaller than 50 GB. Song<br>titles, artists, and links generally take up just a few megabytes. Uploaded media<br>may make an export larger.</p><p class="lead">Google may take several minutes to several days to prepare your export.</p><p class="lead">You'll receive an email confirming your request and another when your export is<br>ready to download.</p><p class="fine">You can download an already prepared export again while it remains available.</p>${btn('Continue to Google Takeout ↗','openTakeout()')}${back(1)}</section>`;
 if(s===3)c=`<section class="view"><div class="symbol">⌕</div><h1>Find Your Downloaded Music Data</h1><p class="lead muted">Once your Google Takeout export is ready, download the ZIP file and scan your<br>Downloads folder.</p>${btn(state.busy?'Scanning...':'⌕ Scan for Takeout File','scan()',state.busy?'outline':'',state.busy)}${state.archive?`<p class="address">Archive: ${esc(state.archive)}</p>`:''}${state.busy?'<p class="info">Analyzing archive...</p>':''}${back(1)}</section>`;
 if(s===4){const credits=new Set(state.tracks.map(t=>String(t.Artist||'').trim().toLowerCase()).filter(Boolean)).size;c=`<section class="view compact"><div class="symbol ok">✓</div><h1>Your Music Library Is Ready!</h1><div class="library-section"><h2>YouTube Music Data</h2><div class="counts"><div class="count"><strong>${credits}</strong><span>Artists</span></div><div class="count"><strong>${state.tracks.length}</strong><span>Songs</span></div></div><p class="fine">Counts are from the selected archive. Artist figures are unverified unique credit strings.</p><div class="tabletitle">Music Preview</div>${table(state.tracks.slice(0,100))}${btn('Continue to Lidarr Setup','changeStep(5)')}${back(3)}</div></section>`}
-if(s===5){if(state.connectionStage){const done=state.connectionStage==='connected';c=`<section class="view"><div class="symbol">▤</div><h1>Connect to Lidarr</h1><div class="splash"><div class="bigcheck">${done?'✓':'◌'}</div><h2>${done?'Connected to Lidarr!':'Connecting to Lidarr...'}</h2><p class="text-status">${done?'API key validated and Lidarr artist catalog loaded.':'Verifying API key and loading the artist catalog...'}</p></div></section>`}else{c=`<section class="view"><div class="symbol">▤</div><h1>Connect to Lidarr</h1><p class="lead muted" style="margin-bottom:23px">Lidarr ${state.found?'found!':'connection setup'}</p><p class="connection-copy">To find your API key, open Lidarr and use the left sidebar:<strong>Settings → General → API Key</strong></p>${btn('Get API Key ↗','openLidarr()','outline')}<input class="field" id="key" type="password" placeholder="Paste your API key" value="${esc(state.key)}" autocomplete="off" spellcheck="false" oninput="state.key=this.value"/><details class="narrow fine" style="margin:10px auto"><summary>Use a different Lidarr address</summary><input class="field" id="lidarr-url" value="${esc(state.lidarr)}" oninput="state.lidarr=this.value" aria-label="Lidarr address"/></details>${btn('Connect to Lidarr','connect()')}${back(4)}</section>`}}
-if(s===6){if(state.verificationStage==='prepare')c=`<section class="view"><div class="symbol">♫</div><h1>Preparing to Verify Your Music Library</h1><p class="lead">This next part can take a few minutes to over an hour, depending on the number of<br>artists and songs in your library.</p><p class="lead muted">We'll clean up your YouTube Music data, compare songs and artists with<br>MusicBrainz, and check the results against your Lidarr library. Each scan starts fresh,<br>without previously saved matching results.</p>${btn('Begin Verification','showVerification()')}${back(5)}</section>` ;else {const v=state.verify||{};const total=v.total||state.tracks.length;const checked=v.checkedCount||0;const totalA=v.totalArtists||new Set(state.tracks.map(x=>x.Artist?.toLowerCase()).filter(Boolean)).size;const resolved=v.resolvedArtists||0;const pct=(x,t)=>t?Math.round(100*x/t):0;c=`<section class="view"><div class="symbol">⌕</div><h1>Verifying Your Music Library</h1><p class="lead muted">Checking exact MusicBrainz recording titles and credited artist IDs.</p><div class="verification"><strong>Recordings Checked</strong><div class="progress-track"><div class="progress-fill" style="width:${pct(checked,total)}%"></div></div><div class="row"><span>${checked} of ${total} checked</span><span>${pct(checked,total)}%</span></div><strong>Unique Artists Resolved</strong><div class="progress-track"><div class="progress-fill" style="width:${pct(resolved,totalA)}%"></div></div><div class="row"><span>${resolved} of ${totalA} identified</span><span>${pct(resolved,totalA)}%</span></div></div><p class="fine narrow">${esc(v.phase||'Starting verification...')}</p><p class="fine narrow">Verified recordings: ${v.verifiedRecordings||0} · Ambiguous: ${v.ambiguous||0} · Not matched: ${v.unmatched||0} · Lookup failures: ${v.lookupFailures||0} · HTTP requests: ${v.requests||0} · Retries: ${v.retries||0}</p>${v.errorDetail?`<p class="message">${esc(v.errorDetail)}</p>`:''}${v.running?'<p class="fine narrow">Each scan starts fresh and does not reuse cached responses. Keep the application open.</p>':''}${!v.running&&v.started?`<div class="audit-report narrow"><h2>Independent confidence audit</h2><p class="fine">Artist confidence and song confidence are calculated separately. A MusicBrainz search result is not a complete artist catalog.</p><p class="fine">High-confidence songs: ${v.songHighConfidence??'—'} · Songs requiring more evidence: ${v.songNeedsReview??'—'}</p><p class="fine">High-confidence artist identities: ${v.artistHighConfidence??'—'} · Artist identities requiring more evidence: ${v.artistNeedsReview??'—'}</p>${btn('Export Song-by-Song Evidence (CSV)','exportAudit(\'songs\')','outline')}${btn('Export Artist & Song Lists (CSV)','exportAudit(\'artists\')','outline')}</div>`:''}${!v.running&&v.started?btn('Run a Fresh Verification Again','showVerification()','outline'):''}</section>`}}
+if(s===5){if(state.connectionStage){const done=state.connectionStage==='connected';c=`<section class="view"><div class="symbol">▤</div><h1>Connect to Lidarr</h1><div class="splash"><div class="bigcheck">${done?'✓':'◌'}</div><h2>${done?'Connected to Lidarr!':'Connecting to Lidarr...'}</h2><p class="text-status">${done?'API key validated and Lidarr artist catalog loaded.':'Verifying API key and loading the artist catalog...'}</p></div></section>`}else{c=`<section class="view"><div class="symbol">▤</div><h1>Connect to Lidarr</h1><p class="lead muted" style="margin-bottom:23px">Lidarr ${state.found?'found!':'connection setup'}</p><p class="connection-copy">To find your API key, open Lidarr and use the left sidebar:<strong>Settings → General → API Key</strong></p>${btn('Get API Key ↗','openLidarr()','outline')}<input class="field" id="key" type="password" placeholder="Paste your API key" value="${esc(state.key)}" autocomplete="off" spellcheck="false" oninput="state.key=this.value"/><details class="narrow fine" style="margin:10px auto"><summary>Use a different Lidarr address</summary><input class="field" id="lidarr-url" value="${esc(state.lidarr)}" oninput="state.lidarr=this.value" aria-label="Lidarr address"/></details><p class="fine narrow" style="font-size:14px">Connecting starts fresh verification automatically. Song and artist titles are sent to MusicBrainz, Apple/iTunes and Deezer for matching; your Takeout ZIP and Lidarr API key are not sent to those services.</p>${btn('Connect to Lidarr','connect()')}${back(4)}</section>`}}
+if(s===6)c=unifiedProgressPage();
 
-el.innerHTML=`<div class="progress-track"><div class="progress-fill" style="width:${[10,20,35,40,50,56][s-1]||10}%"></div></div><div class="step">STEP ${s} OF 10</div><div class="divider"></div>${c}${state.error?`<p class="message" role="alert">${esc(state.error)}</p>`:''}`;
+el.innerHTML=`<div class="progress-track"><div class="progress-fill" style="width:${[10,20,35,40,50,56][s-1]||10}%"></div></div><div class="build-version" aria-label="Application version">YouTube Music to Lidarr · ${BUILD_VERSION}</div><div class="step">STEP ${s} OF 10</div><div class="divider"></div>${c}${state.error?`<p class="message" role="alert">${esc(state.error)}</p>`:''}`;
+if(state.reviewQueue)updateReviewCards();
+rememberNavigation();
+}
+function catalogPanel(){
+ const c=state.catalog||{};
+ const status=c.running||c.done||c.failed;
+ const stats=status?`<div class="catalog-stats"><div><strong>${c.checkedCount||0} / ${c.total||0}</strong><span>External checks completed</span></div><div><strong>${c.appleSupported||0}</strong><span>Apple title + artist matches</span></div><div><strong>${c.deezerSupported||0}</strong><span>Deezer title + artist matches</span></div><div><strong>${c.bothSupported||0}</strong><span>Both catalogs agree</span></div><div><strong>${c.newMusicBrainzIdentities||0}</strong><span>New provisional MusicBrainz matches</span></div></div>`:'';
+ const desc=c.done?'Finished. Export the updated CSVs below. Only targeted MusicBrainz re-queries may add provisional IDs; exact-recording confidence is unchanged.':(c.phase||'Ready when you are.');
+ return `<div class="catalog-panel"><h2>Optional: Research the remaining matches</h2><p>Search Apple/iTunes and Deezer for the ${Math.max(0,(state.verify?.ambiguous||0)+(state.verify?.unmatched||0))} ambiguous or unmatched songs ONLY. This can take several minutes depending on API limits.</p><p><strong>Privacy:</strong> clicking Start shares the artist and song title with Apple and Deezer. The Takeout ZIP, YouTube links and Lidarr API key are NOT sent.</p>${stats}<p aria-live="polite">${esc(desc)}</p>${!status?btn('Start Independent Catalog Research','startCatalogResearch()','outline'):''}${c.done?'<p>Outside catalog hits alone do not prove MusicBrainz IDs. Only separate successful MusicBrainz re-queries can recover provisional IDs; exact masters still require evidence.</p>':''}</div>`
+}
+
+function reviewPanel(){
+ const q=state.reviewQueue;
+ const stats=q?`<p class="fine">${q.items.length} source items in this review view · ${q.savedDecisions} saved decisions · ${q.savedAlbumCount} saved album choices in this Lidarr comparison.</p>`:'';
+ return `<section class="review-note" aria-label="Guided manual review"><h2>Guided manual review — planning only</h2>
+ <p class="fine">Review artist IDs and recording candidates, save decisions for future versions, and compare conflicting editions. <strong>Saving a candidate never verifies a MusicBrainz identity, changes the existing manual-review count automatically, or authorizes a Lidarr search.</strong></p>
+ <p class="fine">Decisions are saved locally under Documents/MusicTakeoutToolkit/review-decisions-v1.json. After a new comparison, album decisions must be explicitly re-applied and revalidated.</p>
+ ${stats}${btn('Open Streamlined Manual Review','Flow918.open()','outline')}${btn(q?'Refresh Guided Review Queue':'Load Guided Review Queue','loadReviewQueue()','outline')}
+ ${q?`<div class="review-filter-row"><input id="review-filter" type="search" value="${esc(state.reviewFilter)}" placeholder="Filter artist, song or album…" oninput="filterReviewItems(this.value)" />
+ <select id="review-mode" onchange="state.reviewMode=this.value;updateReviewCards()"><option value="all" ${state.reviewMode==='all'?'selected':''}>All unresolved</option><option value="artist" ${state.reviewMode==='artist'?'selected':''}>Artists only</option><option value="song" ${state.reviewMode==='song'?'selected':''}>Songs only</option><option value="reviewed" ${state.reviewMode==='reviewed'?'selected':''}>Previously reviewed</option><option value="stale" ${state.reviewMode==='stale'?'selected':''}>Stale candidate selections</option></select></div>
+ <p class="fine" id="review-count"></p><div class="review-scroll" id="review-items"></div>
+ ${btn('Export Saved Review Decisions — NO WRITES (CSV)','exportReviewDecisions()','outline')}`:''}
+ </section>`;
+}
+function reviewMatchIndexes(){
+ const items=state.reviewQueue?.items||[],term=state.reviewFilter.toLowerCase().trim(),mode=state.reviewMode;
+ return items.map((x,i)=>({x,i})).filter(({x})=>(!term||(x.artist+' '+x.song+' '+x.album+' '+x.reason).toLowerCase().includes(term)) &&
+ (mode==='all'||(mode==='reviewed'?x.disposition!=='unreviewed':mode==='stale'?x.evidenceStatus!=='current':x.kind===mode))).map(x=>x.i);
+}
+function reviewCards(){
+ const items=state.reviewQueue?.items||[],indices=reviewMatchIndexes();
+ return {count:indices.length,html:indices.slice(0,30).map(i=>{
+ const x=items[i];const choices=(x.candidates||[]).map(c=>`<option value="${esc(c.id)}" ${x.selected===c.id?'selected':''}>${esc(c.label)} — ${esc(c.id.slice(0,8))} · ${esc(c.evidence.slice(0,78))}</option>`).join('');
+ return `<article class="review-entry"><h4>${esc(x.kind==='artist'?'Artist identity':`Song row ${x.row}`)}: ${esc(x.artist)}${x.song?' — '+esc(x.song):''}</h4>
+ ${x.album?`<div class="fine">Source album: ${esc(x.album)}</div>`:''}
+ <p class="fine">${esc(x.reason||'Needs independent evidence')} · ${x.candidates.length} candidate ID(s) · Saved: ${esc(x.disposition)}</p>
+ ${x.evidenceStatus!=='current'?`<p class="review-stale">Saved candidate is absent from current evidence. Re-select a current candidate or clear this decision.</p>`:''}
+ <div class="review-fields"><select id="review-disposition-${i}" aria-label="Review decision"><option value="needs-research" ${x.disposition==='needs-research'?'selected':''}>Needs additional research</option><option value="defer" ${x.disposition==='defer'?'selected':''}>Defer for later</option><option value="candidate-for-planning" ${x.disposition==='candidate-for-planning'?'selected':''} ${!x.candidates.length?'disabled':''}>Candidate selected for planning only</option><option value="clear">Clear saved decision</option></select>
+ <select id="review-candidate-${i}" aria-label="Candidate ID"><option value="">Select candidate ID (not verified)</option>${choices}</select>
+ <textarea id="review-note-${i}" maxlength="400" placeholder="Optional evidence notes (400 characters maximum)">${esc(x.note||'')}</textarea></div>
+ <button onclick="saveReviewItem(${i})">Save review decision</button></article>`;
+ }).join('')||'<p class="fine">No review items match this filter.</p>'};
+}
+function filterReviewItems(v){state.reviewFilter=v;updateReviewCards()}
+function updateReviewCards(){const target=document.getElementById('review-items');if(!target)return;
+ const view=reviewCards();target.innerHTML=view.html;const count=document.getElementById('review-count');if(count)count.textContent=`${view.count} matches; showing first ${Math.min(30,view.count)}. Filter by artist or title to find others.`;}
+async function loadReviewQueue(){try{state.reviewQueue=await api('review/queue');render();updateReviewCards()}catch(e){state.error=e.message;render()}}
+async function saveReviewItem(i){try{const x=state.reviewQueue?.items[i];if(!x)throw Error('Review item no longer available.');
+ const disposition=document.getElementById('review-disposition-'+i)?.value||'',candidateId=document.getElementById('review-candidate-'+i)?.value||'',note=document.getElementById('review-note-'+i)?.value||'';
+ await api('review/decision',{key:x.key,disposition,candidateId,note});await loadReviewQueue();
+ }catch(e){state.error=e.message;render()}}
+async function exportReviewDecisions(){try{const r=await fetch('/api/review/decisions.csv',{method:'POST',cache:'no-store',headers:{'Content-Type':'application/json','X-Local-Session':SESSION},body:'{}'});
+ if(!r.ok)throw Error((await r.json()).error||'Export failed');const b=await r.blob(),u=URL.createObjectURL(b),a=document.createElement('a');a.href=u;a.download='music-review-decisions-NO-WRITES.csv';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),3000);
+ }catch(e){state.error=e.message;render()}}
+
+function lidarrInventoryPanel(){
+ const x=state.inventory||{};
+ const started=x.running||x.done||x.failed;
+ const metric=(value,label,category='',type='song')=>category?`<button class="category-tile" onclick="showInventoryList('${category}','${type}')" title="View ${esc(label)}"><strong>${value??0}</strong><span>${esc(label)} · View</span></button>`:`<div><strong>${value??0}</strong><span>${esc(label)}</span></div>`;
+ const stats=x.done?`<div class="migration-summary" aria-label="Migration categories">
+  <div class="migration-summary-group"><h3>YouTube Music</h3><div class="catalog-stats">${metric(x.sourceArtists,'Artists in Takeout','all','artist')}${metric(x.totalSongs,'Songs in Takeout','all','song')}</div></div>
+  <div class="migration-summary-group"><h3>Lidarr — Already in Library</h3><div class="catalog-stats">${metric(x.artistAlready,'Artists registered in Lidarr','already','artist')}${metric(x.already,'Songs with downloaded file records','already','song')}</div></div>
+  <div class="migration-summary-group"><h3>To Be Added <small>(proposals only)</small></h3><div class="catalog-stats">${metric(x.artistToAdd,'Artists needing a metadata entry','toAdd','artist')}${metric(x.toAdd,'Songs without a confirmed file','toAdd','song')}</div></div>
+  <div class="migration-summary-group"><h3>Manual Review</h3><div class="catalog-stats">${metric(x.artistReview,'Artists needing identity review','review','artist')}${metric(x.review,'Songs needing identity or recording review','review','song')}</div></div>
+  <div class="migration-summary-group"><h3>Release selection and approvals</h3><div class="catalog-stats">${metric(x.albumDisambiguated,'Duplicated recordings resolved by source album')}${metric(x.releaseChoicesPending,'Album/release choices pending')}${metric(x.searchReady,'Album-search proposals; approval pending')}${metric(x.manualConflicts,'Recording ID disagreements (also shown in proposed additions)')}${metric(x.albumOnlySearchTargets,'Album-only search targets; exact track unverified')}${metric(x.albumAliasesPending,'Album title aliases pending review')}${metric(x.albumReviewGroups,'Album review groups')}${metric(x.groupApprovals,'Group choices approved for planning')}</div><p class="fine">A song may be counted under “To Be Added” while its album choice is still held. No download or Lidarr change occurs here.</p></div>
+  <div class="migration-summary-group"><h3>Read-only inventory totals</h3><div class="catalog-stats">${metric(x.tracksRead,'Lidarr track metadata records')}${metric(x.filesRead,'Lidarr downloaded-file records')}</div></div>
+ </div>`:'';
+ return `<div class="catalog-panel"><h2>Compare Against Your Lidarr Library</h2><p>Recognize songs already registered in Lidarr, group duplicate releases safely, and prepare additions without downloading anything. Artist metadata and downloaded audio are counted separately.</p>${stats}${inventoryDetailPanel()}${started?`<p class="fine">Artists checked: ${x.artistsChecked||0} / ${x.artistsTotal||'—'} · Requests completed: ${x.requestsFinished||0} · Automatic retries: ${x.retries||0}</p>`:''}<p aria-live="polite">${esc(x.phase||(started?'Comparison status pending':'Ready to compare — no media-file presence has been inferred yet.'))}</p>${x.failed?`<p class="message">${esc(x.error||'Inventory comparison failed.')}</p>`:''}${!x.running?btn(x.done?'Refresh Lidarr Library Comparison':'Compare Lidarr Track & File Inventory','compareLidarrInventory()','outline'):''}${started?btn('Export Lidarr Inventory Diagnostics (CSV)','exportLidarrDiagnostics()','outline'):''}${x.done?`${btn('Export All Lidarr Release Candidates (CSV)','exportLidarrCandidates()','outline')}${albumReviewPanel()}${stagingPanel()}${btn('Export Manual Review Triage (CSV)',"exportPlanningCsv('manual-review','lidarr-manual-review-triage.csv')",'outline')}<p class="fine">The release-candidates export includes every competing track, album title, recording MBID, evidence and why selection is held. The Migration Readiness export includes an action-eligibility field. This version does not automatically search or add music to Lidarr.</p>`:''}</div>`;
+}
+
+function showInventoryList(category,type){
+ state.inventoryListCategory=category;
+ state.inventoryListType=type;
+ render();
+ const input=document.getElementById('inventory-list-filter');
+ if(input)input.focus();
+}
+function inventoryDetailPanel(){
+ if(!state.inventory?.done||!state.inventoryListCategory)return '';
+ const category=state.inventoryListCategory;
+ const label={all:'All YouTube Music items',already:'Already in Lidarr',toAdd:'To Be Added',review:'Manual Review'}[category]||category;
+ return `<section class="inventory-detail-panel"><h3>${esc(label)} — ${state.inventoryListType==='song'?'Songs':'Artists'}</h3>
+ <p class="fine">Search by artist, song, album or decision reason. These are read-only inventory results, not download approvals.</p>
+ <input id="inventory-list-filter" type="search" placeholder="Search this list…" oninput="filterInventoryRows(this.value)" />
+ <p id="inventory-list-count" class="fine"></p><div id="inventory-list-results" class="inventory-results">${inventoryRowsMarkup('')}</div>
+ <button class="album-approve-btn" onclick="state.inventoryListCategory='';render()">Close list</button></section>`;
+}
+function inventoryRowsMarkup(query){
+ const kind=state.inventoryListType, category=state.inventoryListCategory;
+ const v=String(query||'').toLowerCase();
+ const matches=(state.inventoryItems||[]).filter(x=>x.type===kind &&
+   (category==='all'||category==='already'&&x.category.startsWith('Already in Library')||
+    category==='toAdd'&&x.category.startsWith('To Be Added')||
+    category==='review'&&x.category.startsWith('Manual Review')) &&
+   (x.artist+' '+x.title+' '+x.album+' '+x.reason).toLowerCase().includes(v));
+ const items=matches.slice(0,100).map(x=>`<div class="inventory-item"><strong>${esc(x.artist)}${x.title?' — '+esc(x.title):''}</strong>
+ <span>${esc(x.album)}${x.album&&x.selectedAlbum?' → ':''}${esc(x.selectedAlbum)}</span><small>${esc(x.reason)}</small></div>`).join('');
+ return `<p class="fine">${matches.length} matching ${kind==='song'?'songs':'artists'}${matches.length>100?' (first 100 shown)':''}</p>${items||'<p class="fine">No matches.</p>'}`;
+}
+function filterInventoryRows(query){
+ const place=document.getElementById('inventory-list-results');
+ if(place)place.innerHTML=inventoryRowsMarkup(query);
+}
+async function fetchInventoryItems(){
+ const data=await api('lidarr/inventory/items');state.inventoryItems=data.items||[];
+ state.inventoryItemsLoaded=true;
+}
+// All queue decisions are SESSION-ONLY. They do not authorize any Lidarr writes.
+async function fetchStagingQueue(){
+ const data=await api('lidarr/inventory/staging-queue');
+ state.stagingQueue=data.items||[];state.stagingLoaded=true;
+ state.stagingSelected=new Set([...state.stagingSelected].filter(id=>state.stagingQueue.some(x=>x.albumId===id)));
+}
+function stagingVisibleItems(){
+ const term=(state.stagingFilter||'').toLowerCase().trim();
+ return (state.stagingQueue||[]).filter(x=>(x.artist+' '+x.album+' '+x.albumId).toLowerCase().includes(term));
+}
+function stagingRowsMarkup(){
+ const matches=stagingVisibleItems();
+ const rows=matches.slice(0,65).map(x=>`<label class="staging-item ${x.otherUnverifiedSongs?'flagged':''}">
+  <input type="checkbox" data-staging-id="${x.albumId}" ${state.stagingSelected.has(x.albumId)?'checked':''} onchange="toggleStagingSelection(${x.albumId},this.checked)" />
+  <span><strong>${esc(x.artist)} — ${esc(x.album)}</strong><small>${x.safeSongs} track-backed source ${x.safeSongs===1?'song':'songs'} · Lidarr album ${x.albumId}${x.staged?' · STAGED IN THIS SESSION':''}${x.otherUnverifiedSongs?' · '+x.otherUnverifiedSongs+' additional unverified source rows associated with this album':''}</small></span>
+ </label>`).join('');
+ return `<p class="fine">${matches.length} albums match${matches.length>65?' (first 65 shown)':''} · ${state.stagingSelected.size} selected</p>${rows||'<p class="fine">No matching albums.</p>'}`;
+}
+function stagingPanel(){
+ if(!state.inventory?.done)return '';
+ if(!state.stagingLoaded)return '<p class="fine">Loading local staging proposals…</p>';
+ const items=state.stagingQueue||[];
+ const staged=items.filter(x=>x.staged).length;
+ const covered=items.reduce((v,x)=>v+x.safeSongs,0);
+ return `<section class="staging-panel" aria-label="Local album staging queue">
+ <h3>Prepare album searches — no writes</h3>
+ ${btn('Open New Migration Preview','Flow918.openPreview()','outline')}
+ <p class="fine">${items.length} eligible Lidarr albums covering ${covered} source songs with track-backed evidence. <strong>${staged} albums staged locally.</strong> This is NOT final search or download approval.</p>
+ <p class="fine"><strong>Important:</strong> A future Lidarr album search may download ALL tracks on a selected album, not only the songs in your Takeout. Version-disputed and album-only proposals are not automatically staged.</p>
+ <input class="staging-input" aria-label="Search stageable albums" type="search" placeholder="Find an artist or Lidarr album..." value="${esc(state.stagingFilter)}" oninput="filterStagingQueue(this.value)" />
+ <div class="staging-list" id="staging-list">${stagingRowsMarkup()}</div>
+ <div class="staging-actions"><button class="secondary" onclick="selectVisibleStaging()">Select visible albums</button><button onclick="applyStaging(true)">Stage selected</button><button class="secondary" onclick="applyStaging(false)">Unstage selected</button></div>
+ ${btn('Export Staging Queue — NO WRITES (CSV)',"exportPlanningCsv('staging-queue','lidarr-album-staging-queue-NO-WRITES.csv')",'outline')}
+ </section>`;
+}
+function toggleStagingSelection(id,checked){if(checked)state.stagingSelected.add(id);else state.stagingSelected.delete(id)}
+function filterStagingQueue(value){state.stagingFilter=value;const el=document.getElementById('staging-list');if(el)el.innerHTML=stagingRowsMarkup()}
+function selectVisibleStaging(){for(const x of stagingVisibleItems().slice(0,65))state.stagingSelected.add(x.albumId);const el=document.getElementById('staging-list');if(el)el.innerHTML=stagingRowsMarkup()}
+async function applyStaging(stage){
+ try{
+  const ids=[...state.stagingSelected];
+  if(!ids.length)throw Error('Choose one or more albums first.');
+  if(ids.length>100)throw Error('Select 100 or fewer albums at once.');
+  await api('lidarr/inventory/stage-albums',{albumIds:ids,stage});
+  state.stagingSelected=new Set();await fetchStagingQueue();render();
+ }catch(e){state.error=e.message;render()}
+}
+function albumReviewPanel(){
+ const groups=state.releaseGroups||[];
+ if(!state.inventory?.done)return '';
+ if(!state.releaseGroupsLoaded)return '<p class="fine">Loading album-level release choices…</p>';
+ const awaiting=groups.filter(g=>!g.approvedAlbumId);
+ const complete=groups.filter(g=>g.approvedAlbumId);
+ const cards=groups.map(g=>{
+   const choices=(g.choices||[]).map(c=>`<option value="${c.albumId}" ${c.albumId===g.suggestedAlbumId?'selected':''} ${!c.complete?'disabled':''}>${esc(c.title)} — ${c.supportedRows}/${g.songs} songs${['edition-or-suffix-variant','volume-notation-variant','unicode-glyph-variant','ep-suffix-variant'].includes(c.relationship)?' (title or edition differs)':''}${!c.complete?' (incomplete)':''}</option>`).join('');
+   const validChoices=g.choices?.some(c=>c.complete);
+   const id=esc(g.id);
+   return `<div class="album-choice-card" data-search="${esc((g.artist+' '+g.sourceAlbum+' '+g.recommendation).toLowerCase())}">
+     <h4>${esc(g.artist)} — ${esc(g.sourceAlbum)}</h4>
+     <p class="fine"><strong>${g.songs} songs</strong> · ${esc(g.explanation)}</p>
+     ${g.savedAlbumId?`<p class="fine">Saved in review notebook: <strong>${esc(g.choices.find(c=>String(c.albumId)===g.savedAlbumId)?.title||'Previous album '+g.savedAlbumId)}</strong>. Always revalidate before reuse.</p>${!g.approvedAlbumId&&g.choices.some(c=>String(c.albumId)===g.savedAlbumId&&c.complete)?`<button class="album-approve-btn" onclick="reapplySavedAlbum('${id}')">Reapply saved choice for planning only</button>`:''}<button class="album-approve-btn" onclick="forgetSavedAlbum('${id}')">Forget saved album choice</button>`:''}
+     ${g.approvedAlbumId?`<p class="fine"><strong>Chosen for planning:</strong> ${esc(g.choices.find(x=>x.albumId===g.approvedAlbumId)?.title||'Album '+g.approvedAlbumId)}. No Lidarr changes.</p>`:
+       `<label for="album-choice-${id}">Select target album</label><select id="album-choice-${id}" aria-label="Album for ${esc(g.artist)} ${esc(g.sourceAlbum)}" ${!validChoices?'disabled':''}>${choices}</select><button class="album-approve-btn" onclick="approveAlbumChoice('${id}')" ${!validChoices?'disabled':''}>Approve release for planning only</button>`}
+     <details><summary>Review ${g.choices.length} candidate albums and evidence</summary><ul>${g.choices.map(c=>`<li>${esc(c.title)} — ${c.supportedRows}/${g.songs} album-search candidates; ${esc(c.relationship)}${c.complete?'':' — NOT group-approvable'}</li>`).join('')}</ul></details>
+   </div>`;
+ }).join('');
+ return `<section class="album-review-panel" aria-label="Album group review"><h3>Review albums together, not song by song</h3>
+ <p class="fine">${awaiting.length} album groups awaiting a release choice · ${complete.length} approved for planning. Choices use recording-ID evidence OR validated artist/title and explicit album-edition relationships. A suggested album is not proof of an exact recording master; edition differences require deliberate approval.</p>
+ <p class="fine"><strong>No downloads, searches or Lidarr write operations happen when selecting a release.</strong> Final search approval is a separate future step.</p>
+ <label for="album-group-filter">Find an artist or album</label><input id="album-group-filter" type="search" placeholder="Search groups…" oninput="filterAlbumGroups(this.value)" />
+ <div class="album-review-scroll">${cards||'<p class="fine">No held album groups remain.</p>'}</div>
+ ${btn('Export Album Review Groups & Evidence (CSV)',"exportPlanningCsv(\'album-groups\',\'lidarr-album-review-groups.csv\')",'outline')}
+ ${btn('Export Proposed Action Plan — NO WRITES (CSV)',"exportPlanningCsv(\'action-plan\',\'lidarr-proposed-action-plan-NO-WRITES.csv\')",'outline')}
+ </section>`;
+}
+function filterAlbumGroups(value){
+ const v=String(value||'').toLowerCase();
+ document.querySelectorAll('.album-choice-card').forEach(card=>{card.hidden=!card.dataset.search.includes(v)})
+}
+async function fetchAlbumGroups(){
+ const response=await api('lidarr/inventory/groups');
+ state.releaseGroups=response.groups||[];
+ state.releaseGroupsLoaded=true;
+}
+async function reapplySavedAlbum(id){try{await api('review/reapply-album',{groupId:id});state.inventory=await api('lidarr/inventory/status');await fetchAlbumGroups();await fetchStagingQueue();render()}catch(e){state.error=e.message;render()}}
+async function forgetSavedAlbum(id){try{await api('review/forget-album',{groupId:id});await fetchAlbumGroups();render()}catch(e){state.error=e.message;render()}}
+async function approveAlbumChoice(id){
+ try{
+  const sel=document.getElementById('album-choice-'+id);
+  if(!sel||!sel.value)throw Error('Choose an album with complete track coverage.');
+  await api('lidarr/inventory/approve-group',{groupId:id,albumId:Number(sel.value)});
+  state.inventory=await api('lidarr/inventory/status');
+  await fetchAlbumGroups();
+  await fetchStagingQueue();
+  render();
+ }catch(e){state.error=e.message;render()}
+}
+async function exportPlanningCsv(name,file){
+ try{
+  const r=await fetch('/api/lidarr/inventory/'+name+'.csv',{method:'POST',cache:'no-store',headers:{'Content-Type':'application/json','X-Local-Session':SESSION},body:'{}'});
+  if(!r.ok)throw Error((await r.json()).error||'Export failed');
+  const b=await r.blob(),u=URL.createObjectURL(b),a=document.createElement('a');a.href=u;a.download=file;
+  document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),3000);
+ }catch(e){state.error=e.message;render()}
+}
+async function exportLidarrDiagnostics(){
+ try{
+  const r=await fetch('/api/lidarr/inventory/diagnostics.csv',{method:'POST',cache:'no-store',headers:{'Content-Type':'application/json','X-Local-Session':SESSION},body:'{}'});
+  if(!r.ok)throw Error((await r.json()).error||'Diagnostic export failed');
+  const blob=await r.blob(),url=URL.createObjectURL(blob),a=document.createElement('a');
+  a.href=url;a.download='lidarr-inventory-diagnostics.csv';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),3000);
+ }catch(e){state.error=e.message;render()}
+}
+async function exportLidarrCandidates(){
+ try{
+  const r=await fetch('/api/lidarr/inventory/candidates.csv',{method:'POST',cache:'no-store',headers:{'Content-Type':'application/json','X-Local-Session':SESSION},body:'{}'});
+  if(!r.ok)throw Error((await r.json()).error||'Candidate export failed');
+  const blob=await r.blob(),url=URL.createObjectURL(blob),a=document.createElement('a');
+  a.href=url;a.download='lidarr-release-candidates.csv';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),3000);
+ }catch(e){state.error=e.message;render()}
+}
+async function compareLidarrInventory(){
+ try{await api('lidarr/inventory/start');state.releaseGroups=[];state.releaseGroupsLoaded=false;state.stagingQueue=[];state.stagingLoaded=false;state.stagingSelected=new Set();state.inventoryItems=[];state.inventoryItemsLoaded=false;state.inventoryListCategory='';state.inventory={running:true,phase:'Reading local Lidarr inventory…'};render();if(!state.inventoryPolling){state.inventoryPolling=true;pollLidarrInventory()}}
+ catch(e){state.error=e.message;render()}
+}
+async function pollLidarrInventory(){
+ try{const a=await api('lidarr/inventory/status');state.inventory=a;if(a.done&&!state.releaseGroupsLoaded){await fetchAlbumGroups();await fetchInventoryItems();await fetchStagingQueue()}if(state.step===6)render();if(a.running)setTimeout(pollLidarrInventory,1000);else state.inventoryPolling=false}
+ catch(e){state.inventoryPolling=false;state.error=e.message;render()}
+}
+function recoveryPanel(){
+ const r=state.recovery||{};
+ const has=state.verify?.started && !state.verify?.running;
+ const stats=r.running||r.done||r.failed?`<div class="catalog-stats"><div><strong>${r.checkedCount||0}/${r.total||0}</strong><span>Identifier checks finished</span></div><div><strong>${r.artistsResolved||0}</strong><span>Artists independently validated</span></div><div><strong>${r.artistCandidates||0}</strong><span>Artist candidates (review)</span></div><div><strong>${r.isrcFound||0}</strong><span>Valid ISRCs returned</span></div><div><strong>${r.songsRecovered||0}</strong><span>MB recording identities recovered (not masters)</span></div><div><strong>${r.candidateScoreRows||0}</strong><span>Artist/album candidate scores</span></div><div><strong>${r.conflicts||0}</strong><span>Conflicts needing review</span></div><div><strong>${r.titleFormatCandidates||0}</strong><span>Compatible title formatting candidates (not masters)</span></div><div><strong>${r.versionConflicts||0}</strong><span>Version descriptions still conflicting</span></div><div><strong>${r.artistCreditCandidates||0}</strong><span>Matching credit names; artist MBID still unverified</span></div></div>`:'';
+ return !has?'':`<div class="catalog-panel"><h2>Optional: Resolve artist IDs and compare song/album tracklists</h2><p>Validate artist MBIDs against credited recordings, inspect related MusicBrainz release-group titles, aliases, edition titles and paginated tracklists for albums and singles, and look up Deezer ISRCs. Works with your prior exported audit files; you do not need to rerun all 2,505 songs.</p><p><strong>Privacy:</strong> This step contacts MusicBrainz and Deezer for selected artist and track IDs. No Lidarr API key or Takeout ZIP is sent. Conflicts remain for manual review.</p>${stats}<p aria-live="polite">${esc(r.phase||(r.done?'Identifier recovery finished.':'Ready to begin.'))}</p>${r.failed?`<p class="message">${esc(r.error||'Some requests failed.')}</p>`:''}${!(r.running||r.done||r.failed)?btn('Recover Artist IDs and ISRCs','startRecovery()','outline'):''}${r.done||r.failed?btn('Export Detailed Recovery Diagnostics (CSV)','exportRecoveryDiagnostics()','outline'):''}${r.done||r.failed?btn('Export All Candidate Scores and Album Evidence (CSV)','exportCandidateScores()','outline'):''}</div>`;
+}
+async function exportCandidateScores(){
+ try{const r=await fetch('/api/recovery/candidate-scores.csv',{method:'POST',cache:'no-store',headers:{'Content-Type':'application/json','X-Local-Session':SESSION},body:'{}'});
+ if(!r.ok)throw Error((await r.json()).error||'Candidate scoring export failed');
+ const blob=await r.blob(),url=URL.createObjectURL(blob),a=document.createElement('a');
+ a.href=url;a.download='musicbrainz-candidate-scoring-audit.csv';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),3000);
+ }catch(e){alertError(e)}
+}
+async function startRecovery(){
+ try {await api('recovery/start');state.inventory=null;state.releaseGroups=[];state.releaseGroupsLoaded=false;state.stagingQueue=[];state.stagingLoaded=false;state.stagingSelected=new Set();state.recovery={running:true,phase:'Starting identifier recovery…'};render();
+  if(!state.recoveryPolling){state.recoveryPolling=true;pollRecovery()}}
+ catch(e){state.error=e.message;render()}
+}
+async function pollRecovery(){
+ try{const r=await api('recovery/status');state.recovery=r;if(state.step===6)render();
+  if(r.running)setTimeout(pollRecovery,1200);else {state.recoveryPolling=false;state.verify=await api('verify/status');if(state.step===6)render();}}
+ catch(e){state.recoveryPolling=false;state.error=e.message;render()}
+}
+async function exportRecoveryDiagnostics(){
+ try{const r=await fetch('/api/recovery/diagnostics.csv',{method:'POST',cache:'no-store',headers:{'Content-Type':'application/json','X-Local-Session':SESSION},body:'{}'});
+  if(!r.ok)throw Error((await r.json()).error||'Export failed');
+  const blob=await r.blob(),url=URL.createObjectURL(blob),a=document.createElement('a');
+  a.href=url;a.download='musicbrainz-identifier-recovery-debug.csv';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),3000);
+ }catch(e){state.error=e.message;render()}
+}
+
+async function importOldAudits(){state.reviewQueue=null;
+ try{
+  const f=document.getElementById('previous-song-audit')?.files?.[0];
+  const g=document.getElementById('previous-artist-audit')?.files?.[0];
+  const b=document.getElementById('baseline-song-audit')?.files?.[0];
+  const c=document.getElementById('previous-candidate-scores')?.files?.[0];
+  if(b&&b.size>2500000)throw Error('Original evidence CSV is unexpectedly large.');
+  if(c&&c.size>1000000)throw Error('Candidate scores CSV is unexpectedly large.');
+  if(!f||!g)throw Error('Select both exported CSV files before importing.');
+  if(f.size>2500000||g.size>1500000)throw Error('Audit CSV is unexpectedly large.');
+  state.busy=true;state.error='';render();
+  const [songsCsv,artistsCsv,baselineSongsCsv,candidateScoresCsv]=await Promise.all([f.text(),g.text(),b?b.text():Promise.resolve(''),c?c.text():Promise.resolve('')]);
+  const imported=await api('audit/import',{songsCsv,artistsCsv,baselineSongsCsv,candidateScoresCsv});
+  state.verify=await api('verify/status');state.verificationStage='progress';state.busy=false;state.catalog=null;state.recovery=null;state.inventory=null;state.releaseGroups=[];state.releaseGroupsLoaded=false;state.stagingQueue=[];state.stagingLoaded=false;state.stagingSelected=new Set();
+  state.verify.phase=`Imported previous evidence (not a fresh verification). ${imported.repairedRows||0} song rows had lost baseline evidence restored; ${imported.candidateScoreRows||0} historical candidate-score records loaded as REVIEW ONLY.`;
+  render();
+ }catch(e){alertError(e)}
+}
+async function startCatalogResearch(){
+ try{await api('catalog/start');state.inventory=null;state.releaseGroups=[];state.releaseGroupsLoaded=false;state.stagingQueue=[];state.stagingLoaded=false;state.stagingSelected=new Set();state.catalog={running:true,phase:'Starting catalog checks…'};render();if(!state.catalogPolling){state.catalogPolling=true;pollCatalog()}}
+ catch(e){state.error=e.message;render()}
+}
+async function pollCatalog(){
+ try{const c=await api('catalog/status');state.catalog=c;
+  if(state.step===6)render();
+  if(c.running)setTimeout(pollCatalog,1200);else state.catalogPolling=false;
+ }catch(e){state.catalogPolling=false;state.error=e.message;render()}
 }
 function openTakeout(){window.open('https://takeout.google.com/settings/takeout/custom/youtube','_blank','noopener,noreferrer');changeStep(3)}
 function openLidarr(){const u=state.lidarr.trim();if(!/^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?\/?$/i.test(u)){alertError(Error('Use your local Lidarr address, such as http://127.0.0.1:8686.'));return}window.open(u.replace(/\/$/,'')+'/settings/general','_blank','noopener,noreferrer')}
 async function scan(){state.busy=true;state.error='';render();try{const r=await api('scan');if(!r.found)throw Error(r.message||'Takeout ZIP not found in Downloads.');state.archive=r.archive;render();await api('analyze');await poll()}catch(e){alertError(e)}}
 async function poll(){try{let r=await api('state');if(r.analyzing){setTimeout(poll,700);return}if(r.analysisError)throw Error(r.analysisError);state.tracks=r.tracks||[];if(!state.tracks.length)throw Error('No music records were found.');state.busy=false;changeStep(4)}catch(e){alertError(e)}}
-async function connect(){if(state.busy)return;state.busy=true;state.error='';state.connectionStage='connecting';render();try{const r=await api('lidarr/connect',{url:state.lidarr.trim(),key:state.key.trim()});state.artists=r.artistRecords||[];state.busy=false;state.key='';state.connectionStage='connected';state.found=true;render();setTimeout(()=>{if(state.step===5&&state.connectionStage==='connected')changeStep(6)},950)}catch(e){alertError(e)}}
-async function showVerification(){state.verificationStage='progress';state.verify={phase:'Starting verification...',running:true};render();try{await api('verify/start');if(!state.verifyPolling){state.verifyPolling=true;pollVerification()}}catch(e){state.verify={running:false,phase:e.message};alertError(e)}}
+async function connect(){if(state.busy)return;state.busy=true;state.error='';state.connectionStage='connecting';render();try{const r=await api('lidarr/connect',{url:state.lidarr.trim(),key:state.key.trim()});state.artists=r.artistRecords||[];state.busy=false;state.key='';state.connectionStage='connected';state.found=true;render();setTimeout(()=>{if(state.step===5&&state.connectionStage==='connected'){changeStep(6);if(!unifiedPolling){unifiedPolling=true;pollUnifiedPipeline()}}},950)}catch(e){alertError(e)}}
+async function showVerification(){state.reviewQueue=null;state.catalog=null;state.recovery=null;state.inventory=null;state.releaseGroups=[];state.releaseGroupsLoaded=false;state.stagingQueue=[];state.stagingLoaded=false;state.stagingSelected=new Set();state.catalogPolling=false;state.verificationStage='progress';state.verify={phase:'Starting verification...',running:true};render();try{await api('verify/start');if(!state.verifyPolling){state.verifyPolling=true;pollVerification()}}catch(e){state.verify={running:false,phase:e.message};alertError(e)}}
 async function pollVerification(){try{const v=await api('verify/status');state.verify=v;if(state.step===6&&state.verificationStage==='progress')render();if(v.running){setTimeout(pollVerification,1100)}else{state.verifyPolling=false}}catch(e){state.verifyPolling=false;state.error=e.message;render()}}
+async function exportReadiness(){try{const r=await fetch('/api/migration/readiness.csv',{method:'POST',cache:'no-store',headers:{'Content-Type':'application/json','X-Local-Session':SESSION},body:'{}'});if(!r.ok)throw Error((await r.json()).error||'Export failed');const blob=await r.blob(),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='migration-readiness-preview.csv';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),3000)}catch(e){state.error=e.message;render()}}
 async function exportAudit(kind){try{const r=await fetch('/api/audit/'+kind+'.csv',{method:'POST',cache:'no-store',headers:{'Content-Type':'application/json','X-Local-Session':SESSION},body:'{}'});if(!r.ok){const e=await r.json();throw Error(e.error||'Export failed')}const blob=await r.blob();const u=URL.createObjectURL(blob);const a=document.createElement('a');a.href=u;a.download='musicbrainz-'+kind+'-audit.csv';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),3000)}catch(e){state.error=e.message;render()}}
 function prepareVerification(){state.verificationStage='prepare';render()}
+// Restore ALL screens from a per-tab navigation checkpoint. The server remains
+// authoritative about source data, pipeline state and completed Lidarr staging.
+// A refresh must never start a new scan, repeat a connection, or replay an import.
+async function restoreNavigationOnLoad(){
+ const checkpoint=readNavigation();
+ let connectedToServer=false;
+ try{
+  const [p,s]=await Promise.all([api('pipeline/status'),api('state')]);
+  state.archive=s.archive||'';
+  state.tracks=s.tracks||[];
+  state.found=!!s.lidarrConnected;
+  state.hasData=state.tracks.length>0;
+  state.lidarr=s.lidarrUrl||state.lidarr;
+  state.pipeline=p;
+  connectedToServer=true;
+  const running=!!p.running,finished=!!p.done,failed=!!p.failed;
+  const hasPipeline=running||finished||failed;
+  let step=Number(checkpoint?.step);
+  if(!Number.isInteger(step)||step<1||step>6)step=1;
+  if(running)step=6; // Always rejoin active work, never start a second scan.
+  else if((finished||failed)&&(!checkpoint||step===6||checkpoint.flow))step=6;
+  else if(step>=4&&!state.hasData)step=3;
+  state.step=step;
+  state.error='';
+  if(s.analyzing&&!hasPipeline){
+   // Resume waiting for the EXISTING Takeout parser, not scanning again.
+   state.step=3;
+   navigationReady=true;
+   render();
+   poll();
+   return;
+  }
+  if(finished&&step===6&&checkpoint?.flow&&window.Flow918){
+   state.inventory=await api('lidarr/inventory/status');
+   try{await window.Flow918.restoreNavigation(checkpoint.flow)}
+   catch(error){
+    state.error='The saved screen could not be restored: '+(error?.message||error);
+    await window.Flow918.open('manual');
+   }
+  }else if(finished&&step===6){
+   state.inventory=await api('lidarr/inventory/status');
+   await openUnifiedReview();
+  }else{
+   render();
+   if(running&&!unifiedPolling){unifiedPolling=true;pollUnifiedPipeline()}
+  }
+ }catch(e){
+  // Do not overwrite a previously saved page when the local server is temporarily
+  // unavailable. A later refresh can still rejoin it.
+  state.error='Unable to reconnect to the running application: '+(e?.message||e);
+  render();
+ }finally{
+  // A transient network error must not replace the last good checkpoint.
+  navigationReady=connectedToServer;
+  if(connectedToServer)rememberNavigation();
+ }
+}
 render();
-</script></body></html>
+window.addEventListener('load',restoreNavigationOnLoad,{once:true});
+</script><script src="/flow918.js" defer></script></body></html>

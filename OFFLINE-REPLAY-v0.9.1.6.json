@@ -1,0 +1,26 @@
+{
+  "source": "Saved v0.9.1.5 candidate-scoring CSV, aggregate offline audit only",
+  "rows": 194,
+  "incomplete_search_discovery_rows": 28,
+  "closure_sam_case_fixtures": [
+    {
+      "artist": "Closure",
+      "album": "I'm Gone",
+      "decision_v0915": "incomplete-discovery-review-only",
+      "recording_ids": "1c979b61-8f7c-4657-924d-c8818b18f396",
+      "release_inventory": "Releases=1/1; page-complete=True; title-relation=exact-normalized-title; tracklists-inspected=1/1; competing-groups=1; complete-evidence=True"
+    },
+    {
+      "artist": "Sam Tinnesz",
+      "album": "Ready Set Let's Go",
+      "decision_v0915": "incomplete-discovery-review-only",
+      "recording_ids": "0027b2fb-3fdd-43af-83cf-692a812ed664",
+      "release_inventory": "Releases=1/1; page-complete=True; title-relation=exact-normalized-title; tracklists-inspected=1/1; competing-groups=1; complete-evidence=True"
+    }
+  ],
+  "verified_behavior": "Search parser now reads `count` while browse parsers retain release-count and release-group-count. Build needed to execute C# fixtures.",
+  "projected_new_identities": "unknown until targeted recovery runs on Windows",
+  "previous_manual_review": 299,
+  "previous_artist_review": 68,
+  "all_lidarr_operations": "read-only; all approval queue interactions local-only"
+}
