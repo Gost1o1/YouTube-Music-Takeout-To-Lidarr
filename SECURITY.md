@@ -1,4 +1,4 @@
-# Security notes — v0.9.1.15.6 preview
+# Security notes — v0.9.1.15.8 preview
 
 - This is development-only software; no independent security audit or Defender clearance has been completed.
 - The local HTTP server listens on loopback, checks the request host/origin, and uses a random per-launch API session token. The Lidarr key remains in process memory and is never deliberately sent to outside metadata providers.
@@ -7,3 +7,5 @@
 - Matching, review, and Migration Preview are read-only for Lidarr. **Only the final, explicitly approved import action writes to Lidarr:** it can add independently verified artists, monitor selected albums, and optionally request album searches after separate consent. A search can download an entire album. No Lidarr delete endpoint is used by this importer.
 - The application never synthesizes audio files from source-only metadata, and a queued Lidarr command does not prove that a song was downloaded. The Windows download needs no end-user PowerShell script; the source package includes a developer-only build script. Never disable security tools to run the app.
 - Temporary diagnostic logging may include artist titles; do not publish private audit CSVs, music metadata, keys, logs or reports to GitHub.
+- A recoverable import checkpoint is saved in `Documents/MusicTakeoutToolkit/lidarr-import-checkpoint-v1.json`. It contains selected artist/album identifiers, names and outcomes, plus a hash of the Lidarr URL, but **no API key**. Treat the checkpoint as local private music-library metadata. The app never automatically resends a potentially accepted import write after a crash.
+- The app tab uses a random per-tab identifier for a loopback-only heartbeat. Closing the last tab triggers process exit after a safety grace period, but an active Lidarr write or catalog check is allowed to complete first. This version still displays the developer console.

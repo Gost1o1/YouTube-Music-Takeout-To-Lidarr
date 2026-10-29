@@ -25,9 +25,9 @@
 
 1. Select **Download — Windows x64** above and download `YouTubeMusicToLidarr-win-x64.zip` from a published GitHub Release. **If no Release is listed yet**, choose **Preview — Test Builds**, open the newest successful run, and download its artifact (GitHub sign-in may be required).
 2. Right-click the downloaded ZIP → **Extract All**. Keep the `AppUI` folder beside `YouTubeMusicToLidarr.exe`.
-3. Double-click **`YouTubeMusicToLidarr.exe`**. Your browser opens the local app automatically. The development build may also show a console window; leave it open while using the app.
+3. Double-click **`YouTubeMusicToLidarr.exe`**. Your browser opens the local app automatically. The development build may also show a console window; leave it open while using the app. Closing the final program tab now closes the EXE after a short grace period, once active writes finish.
 4. Follow the on-screen steps to choose your YouTube Music Takeout, connect to Lidarr, and review your matches.
-5. On **Finalize Lidarr Import**, select **Add to Lidarr Only** or **Add and Search**. Approve the albums and profiles shown before starting an import. The app displays both the requests it sends and Lidarr's separate background activity.
+5. On **Finalize Lidarr Import**, select **Add to Lidarr Only** or **Add and Search**. Review the album selection and profiles before starting. The app tracks both requests sent and artists/albums verified back in Lidarr. It waits for the selected catalog items to be confirmed before showing batch results; any still-unverified source songs remain clearly outstanding.
 
 The downloaded Windows build is self-contained; **you do not need PowerShell or the .NET SDK to run it**. No installation is required.
 
@@ -39,10 +39,15 @@ The downloaded Windows build is self-contained; **you do not need PowerShell or 
 - Compares planned additions with your existing Lidarr library before any changes.
 - On your explicit approval, adds missing verified artists and monitors chosen, track-backed albums already known to Lidarr.
 - Optionally queues Lidarr album searches, with progress and a downloadable results report.
+- Saves a crash-safe import checkpoint to your Documents folder so a restarted app can inspect past actions and recheck Lidarr without automatically repeating album searches.
 
-**What it cannot do yet:** Your YouTube Takeout is metadata, not audio files. The tool cannot upload or recreate songs from that metadata. Unverified and source-only manual entries stay in the app for later review or manual import. The progress bar reports completed Lidarr API actions; Lidarr's metadata refreshes, searches, downloads and file imports may continue afterward.
+**What it cannot do yet:** Your YouTube Takeout is metadata, not audio files. The tool cannot upload or recreate songs from that metadata. Unverified and source-only manual entries stay in the app for later review or manual import. Two separate progress bars show **Lidarr requests checked** and **artists/albums confirmed in Lidarr**. Final completion means the selected catalog entries exist and albums are monitored—it does **not** mean the audio files are downloaded. Lidarr's searches and downloads may continue afterward.
+
+**If you already ran an import using an older version:** Do **not** start the same searches again just to test this release. The checkpoint feature only records actions performed by v0.9.1.15.8 and later. Check your existing Lidarr albums and downloads first. A download-client error inside Lidarr is separate from this tool and will not be fixed by repeating an import.
 
 **Privacy:** Your Takeout archive and Lidarr API key stay on your computer. Optional catalog lookups send relevant artist/song terms to their providers. See [Security & privacy](SECURITY.md).
+
+The local import checkpoint contains album/artist names, identifiers and results (but no API keys). Protect it as you would your other music-library metadata.
 
 ## Need help?
 
