@@ -31,18 +31,6 @@
 
 The downloaded Windows build is self-contained; **you do not need PowerShell or the .NET SDK to run it**. No installation is required.
 
-## Watch the walkthrough
-
-Want to see the process before starting? Watch the step-by-step walkthrough by **Gost1o1**:
-
-<p align="center">
-  <a href="https://www.youtube.com/watch?v=n81hzCCk8M0" title="Watch the YouTube Music Takeout to Lidarr walkthrough on YouTube">
-    <img src="https://img.youtube.com/vi/n81hzCCk8M0/hqdefault.jpg" alt="Watch Gost1o1's YouTube Music Takeout to Lidarr walkthrough" width="560" />
-  </a>
-</p>
-
-<p align="center"><a href="https://www.youtube.com/watch?v=n81hzCCk8M0"><strong>▶ Watch the setup and usage video on YouTube</strong></a></p>
-
 ## What it does
 
 - Reads your Google Takeout export and organizes artist/song information.
