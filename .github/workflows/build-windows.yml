@@ -4,22 +4,19 @@ on:
   workflow_dispatch:
   push:
     paths:
-      - 'src/**'
-      - 'AppUI/**'
-      - 'tools/**'
-      - 'YouTubeMusicToLidarr.csproj'
+      - 'YouTube-Music-Takeout-To-Lidarr/**'
       - '.github/workflows/build-windows.yml'
   pull_request:
     paths:
-      - 'src/**'
-      - 'AppUI/**'
-      - 'tools/**'
-      - 'YouTubeMusicToLidarr.csproj'
+      - 'YouTube-Music-Takeout-To-Lidarr/**'
       - '.github/workflows/build-windows.yml'
 
 jobs:
   build:
     runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: YouTube-Music-Takeout-To-Lidarr
     permissions:
       contents: read
     steps:
@@ -41,6 +38,7 @@ jobs:
           node tools/offline_v091153_song_fallback.js
           node tools/offline_v091154_song_titles_history.js
           node tools/offline_v091155_review_progress_provenance.js
+          node tools/offline_v091156_lidarr_import.js
           node tools/offline_v0918_ui_smoke.js
           node tools/offline_v0921_navigation_resume.js
       - name: Publish Windows application
@@ -61,4 +59,4 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: YouTubeMusicToLidarr-win-x64-test-build
-          path: publish/**
+          path: YouTube-Music-Takeout-To-Lidarr/publish/**
