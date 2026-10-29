@@ -36,6 +36,7 @@ dotnet build YouTubeMusicToLidarr.csproj -c Release -r win-x64
 dotnet run --project YouTubeMusicToLidarr.csproj -c Release -r win-x64 --no-build -- --self-test
 node tools/offline_v091155_review_progress_provenance.js
 node tools/offline_v091156_lidarr_import.js
+node tools/offline_v091158_checkpoint_safety.js
 ```
 
 The workflow also checks the other offline JavaScript regression fixtures.
@@ -50,7 +51,7 @@ download destination.
 
 1. Wait for **Build and smoke-test Windows .NET** to pass on `main`.
 2. In GitHub **Actions**, select **Publish Windows download**.
-3. Click **Run workflow** and enter a new version tag, for example `v0.9.1.15.6`.
+3. Click **Run workflow** and enter a new version tag, for example `v0.9.1.15.8`.
 4. Leave **prerelease** checked while this application remains a preview.
 5. Wait for the workflow to build, test, and upload `YouTubeMusicToLidarr-win-x64.zip` to the new Release.
 6. Confirm the ZIP contains both `YouTubeMusicToLidarr.exe` and `AppUI/` and launches on Windows.

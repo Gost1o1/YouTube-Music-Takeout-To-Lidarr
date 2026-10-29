@@ -1,4 +1,35 @@
-# v0.9.1.15.6 — opt-in Lidarr write and background progress checks
+# v0.9.1.15.8 — durable import checkpoints, accurate review progress, tab-close shutdown
+
+Before public release, test on Windows with a disposable Lidarr instance:
+
+1. Run `dotnet build`, the built-in `--self-test`, and all Node offline tests.
+2. Save a candidate and choose **None of these** on separate manual review entries.
+   Confirm each saved decision increases **Addressed** and decreases **Still needs
+   review** by exactly one; revisiting a decision must not double-count it.
+   Check artist and song counters independently and reload the tab.
+3. Select 1,000+ albums in Migration Preview and return from Finalize. Confirm
+   the list remains in a bounded scroll region and selecting all survives.
+4. Approve a small dummy import. Verify the checkpoint is written to
+   `Documents\\MusicTakeoutToolkit\\lidarr-import-checkpoint-v1.json` before
+   each Lidarr write and after each result. Never include the API key there.
+5. Force-stop a *disposable* test import mid-run, restart the EXE, and confirm
+   the recovery screen reports the interrupted action. Reconnect with the
+   original Lidarr URL/key and use **read-only** verification. Confirm **no
+   duplicate artist additions, album updates, or searches** are transmitted.
+6. After all selected artists/albums are confirmed, verify a saved manual
+   proposal still prevents confetti and the UI explicitly says migration is
+   not complete. Download/file imports are separate from catalog verification.
+7. Close and reopen the app tab quickly to test refresh grace. Close the last
+   app tab and wait for the EXE to exit. With an active dummy import, closing
+   the tab must not interrupt an in-flight Lidarr write; the EXE exits safely
+   after work settles. Another open app tab must keep it alive.
+
+The current build remains console-visible by design. Download-client and
+indexer errors within Lidarr are separate from these application checks.
+
+---
+
+# v0.9.1.15.7 — verify Lidarr catalog before final completion
 
 For an end-to-end test, use a **disposable Lidarr instance/library**, not your
 production downloads. Running `dotnet build` and `--self-test` does not change
@@ -15,12 +46,21 @@ Lidarr; clicking **Start Lidarr Import** does.
 4. With a different test album, choose **Add and Search**. Confirm it requires
    a selected eligible album and a separate search-approval checkbox; only then
    should Lidarr receive a search command for that album.
-5. Confirm the progress bar advances once for each selected artist or album,
-   errors are visible in the report, and the **Lidarr background activity**
-   panel independently updates even after the app's own requests finish. That
-   panel reflects the entire Lidarr command queue; it does not measure file
-   downloads directly. Test browser refresh during progress: no write repeats.
-6. Confirm source-only manual proposals and disputed recordings are excluded,
+5. Confirm the **Requests checked** bar and **Confirmed in Lidarr** bar advance
+   independently. The latter requires read-back of artist MBIDs and monitored
+   Lidarr album IDs. When all API requests have completed but catalog checks
+   are pending, **no confetti and no final screen** may appear.
+6. If catalog read-back is delayed, choose **Recheck Lidarr Catalog**. Check
+   network/API records to ensure this performs GET requests only, not duplicate
+   artist additions, album updates, or searches. A failed API write must not
+   falsely unlock a celebration.
+7. When every selected catalog item has been verified and no requests failed,
+   confirm the final screen and confetti appear. Lidarr background activity may
+   still be queued, searching or downloading, and is **not** a completion gate.
+   Test refreshing the browser during verification: no write repeats.
+8. On Finalize, select a large album batch and verify the album list is
+   collapsed and scrollable, with navigation returning to the top of the screen.
+9. Confirm source-only manual proposals and disputed recordings are excluded,
    and inspect Lidarr's Activity/History and actual file presence separately.
 
 **Validation limitation:** local JavaScript regression tests do not prove that
