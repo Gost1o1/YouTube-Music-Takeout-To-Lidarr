@@ -1,0 +1,11 @@
+Baseline from user's v0.9.1.8 audit exports (19), for comparisons only.
+Songs: 2505
+Artist identities: 951
+High-confidence artist IDs: 882
+Artist identities needing review: 69
+Lidarr proposed songs: 2,212
+Lidarr manual-review songs: 293
+MusicBrainz full scan elapsed: 8h 56m
+Reported MusicBrainz requests: 5,164
+Reported retries: 605
+No new runtime or match-count improvement is claimed for v0.9.1.9 until a real run completes.

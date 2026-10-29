@@ -1,0 +1,13 @@
+{
+  "full_source_rows": 2505,
+  "artist_rows": 951,
+  "previous_manual_rows": 299,
+  "eligible_unresolved_cohorts": 148,
+  "targeted_cohorts_selected": 148,
+  "unresolved_source_rows_eligible_for_targeted_checks": 169,
+  "selected_rows_also_in_previous_manual_review": 169,
+  "externally_corroborated_selected_rows": 148,
+  "provider_calls_executed": 0,
+  "new_verified_recordings_claimed": 0,
+  "note": "Offline eligibility only. Live MusicBrainz release/track checks and Windows build still required."
+}
