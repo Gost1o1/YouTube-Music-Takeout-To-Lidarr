@@ -11,14 +11,168 @@ sealed partial class DesktopServer
     sealed class LidarrWriteState
     {
         public bool Running, Done;
+        public bool Rechecking;
+        public bool RecoveredFromCheckpoint;
+        public string EndpointFingerprint = "", InFlightAction = "";
+        public DateTimeOffset StartedUtc;
         public string Mode = "", Phase = "Not started";
         public int Total, Completed, AddedArtists, ExistingArtists, MonitoredAlbums,
             AlreadyMonitoredAlbums, SearchesQueued, Failed;
+        public string[] ExpectedArtistIds = Array.Empty<string>();
+        public int[] ExpectedAlbumIds = Array.Empty<int>();
+        public HashSet<string> ConfirmedArtistIds = new(StringComparer.OrdinalIgnoreCase);
+        public HashSet<int> ConfirmedAlbumIds = new();
+        public int CatalogVerified => ConfirmedArtistIds.Count + ConfirmedAlbumIds.Count;
+        public bool CatalogComplete => Done && !Running && !Rechecking &&
+            string.IsNullOrEmpty(InFlightAction) && Completed == Total &&
+            Failed == 0 && Total > 0 && CatalogVerified == Total;
         public List<ImportEvent> Events = new();
+    }
+    // No API keys, OAuth tokens, or raw Takeout file contents are written to
+    // the import checkpoint. Artist/album names and IDs are kept for audit.
+    // It is an audit trail, not a replay
+    // queue: a POST may succeed immediately before Windows terminates the EXE.
+    sealed class ImportCheckpoint
+    {
+        public ImportCheckpoint() { }
+        public int Schema { get; set; } = 1;
+        public string Mode { get; set; } = "";
+        public string Phase { get; set; } = "";
+        public string EndpointFingerprint { get; set; } = "";
+        public string InFlightAction { get; set; } = "";
+        public DateTimeOffset StartedUtc { get; set; }
+        public bool Done { get; set; }
+        public int Total { get; set; }
+        public int Completed { get; set; }
+        public int AddedArtists { get; set; }
+        public int ExistingArtists { get; set; }
+        public int MonitoredAlbums { get; set; }
+        public int AlreadyMonitoredAlbums { get; set; }
+        public int SearchesQueued { get; set; }
+        public int Failed { get; set; }
+        public string[] ExpectedArtistIds { get; set; } = Array.Empty<string>();
+        public int[] ExpectedAlbumIds { get; set; } = Array.Empty<int>();
+        public string[] ConfirmedArtistIds { get; set; } = Array.Empty<string>();
+        public int[] ConfirmedAlbumIds { get; set; } = Array.Empty<int>();
+        public List<ImportEvent> Events { get; set; } = new();
     }
     readonly object importGate = new();
     LidarrWriteState importWrite = new();
     CancellationTokenSource? importCancellation;
+    bool importCheckpointUnreadable;
+    string ImportCheckpointPath => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
+        "MusicTakeoutToolkit", "lidarr-import-checkpoint-v1.json");
+    static string EndpointHash(string value) => Convert.ToHexString(
+        System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(value.TrimEnd('/').ToLowerInvariant())));
+
+    // Caller must hold importGate. Atomic replace prevents a partial state
+    // file and is performed before any potentially ambiguous Lidarr write.
+    void SaveImportCheckpointLocked()
+    {
+        var s = importWrite;
+        if (s.Total <= 0) return;
+        var snapshot = new ImportCheckpoint {
+            Mode = s.Mode, Phase = s.Phase, EndpointFingerprint = s.EndpointFingerprint,
+            InFlightAction = s.InFlightAction, StartedUtc = s.StartedUtc,
+            Done = s.Done, Total = s.Total, Completed = s.Completed,
+            AddedArtists = s.AddedArtists, ExistingArtists = s.ExistingArtists,
+            MonitoredAlbums = s.MonitoredAlbums, AlreadyMonitoredAlbums = s.AlreadyMonitoredAlbums,
+            SearchesQueued = s.SearchesQueued, Failed = s.Failed,
+            ExpectedArtistIds = s.ExpectedArtistIds, ExpectedAlbumIds = s.ExpectedAlbumIds,
+            ConfirmedArtistIds = s.ConfirmedArtistIds.ToArray(),
+            ConfirmedAlbumIds = s.ConfirmedAlbumIds.ToArray(), Events = s.Events.ToList()
+        };
+        var path = ImportCheckpointPath;
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        var temporary = path + ".tmp";
+        try
+        {
+            File.WriteAllText(temporary, JsonSerializer.Serialize(snapshot), new UTF8Encoding(false));
+            File.Move(temporary, path, true);
+        }
+        finally { if (File.Exists(temporary)) File.Delete(temporary); }
+    }
+
+    void MarkImportWriteIntent(string operation)
+    {
+        lock (importGate)
+        {
+            importWrite.InFlightAction = operation;
+            SaveImportCheckpointLocked();
+        }
+    }
+
+    void LoadImportCheckpoint()
+    {
+        var path = ImportCheckpointPath;
+        if (!File.Exists(path)) return;
+        try
+        {
+            var info = new FileInfo(path);
+            if (info.Length > 3_000_000) throw new InvalidOperationException("Import checkpoint is unexpectedly large.");
+            var saved = JsonSerializer.Deserialize<ImportCheckpoint>(File.ReadAllText(path, Encoding.UTF8));
+            if (saved == null || saved.Schema != 1 || saved.Total is <= 0 or > 3001 ||
+                saved.Completed < 0 || saved.Completed > saved.Total ||
+                (saved.ExpectedArtistIds?.Length ?? 0) + (saved.ExpectedAlbumIds?.Length ?? 0) != saved.Total ||
+                saved.Events == null || saved.Events.Count > 3005)
+                throw new InvalidOperationException("Import checkpoint validation failed.");
+            lock (importGate)
+            {
+                importWrite = new LidarrWriteState {
+                    Running = false, Done = saved.Done, RecoveredFromCheckpoint = true,
+                    Mode = saved.Mode, EndpointFingerprint = saved.EndpointFingerprint,
+                    InFlightAction = saved.InFlightAction, StartedUtc = saved.StartedUtc,
+                    Total = saved.Total, Completed = saved.Completed, AddedArtists = saved.AddedArtists,
+                    ExistingArtists = saved.ExistingArtists, MonitoredAlbums = saved.MonitoredAlbums,
+                    AlreadyMonitoredAlbums = saved.AlreadyMonitoredAlbums,
+                    SearchesQueued = saved.SearchesQueued, Failed = saved.Failed,
+                    ExpectedArtistIds = saved.ExpectedArtistIds!, ExpectedAlbumIds = saved.ExpectedAlbumIds!,
+                    ConfirmedArtistIds = new HashSet<string>(saved.ConfirmedArtistIds ?? Array.Empty<string>(), StringComparer.OrdinalIgnoreCase),
+                    ConfirmedAlbumIds = new HashSet<int>(saved.ConfirmedAlbumIds ?? Array.Empty<int>()),
+                    Events = saved.Events,
+                    Phase = saved.Done ? "Previous Lidarr import restored from checkpoint. Reconnect to verify the catalog."
+                        : "Previous Lidarr import was interrupted. No write or search will be automatically repeated."
+                };
+            }
+        }
+        catch (Exception ex)
+        {
+            Log("Import checkpoint could not be restored: " + ex.Message);
+            // Preserve the existing file for manual diagnosis; never discard it.
+            lock (importGate)
+            {
+                importCheckpointUnreadable = true;
+                importWrite.Phase = "Saved import checkpoint could not be read; do not resend the prior batch.";
+            }
+        }
+    }
+
+    async Task ReconnectImportCheckpointAsync(string url, string apiKey)
+    {
+        string expected;
+        lock (importGate)
+        {
+            if (importWrite.Total <= 0 || importWrite.Running)
+                throw new InvalidOperationException("No stopped import checkpoint is available to inspect.");
+            expected = importWrite.EndpointFingerprint;
+        }
+        var validated = ValidateLidarr(url);
+        if (string.IsNullOrWhiteSpace(expected) || EndpointHash(validated) != expected)
+            throw new InvalidOperationException("This URL is different from the original Lidarr instance. No changes were made.");
+        if (string.IsNullOrWhiteSpace(apiKey))
+            throw new InvalidOperationException("Enter the API key for the original Lidarr instance.");
+        using var request = new HttpRequestMessage(HttpMethod.Get, validated + "/api/v1/artist");
+        request.Headers.TryAddWithoutValidation("X-Api-Key", apiKey);
+        using var response = await http.SendAsync(request);
+        if (!response.IsSuccessStatusCode)
+            throw new InvalidOperationException($"Could not reconnect to Lidarr (HTTP {(int)response.StatusCode}).");
+        using var list = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        if (list.RootElement.ValueKind != JsonValueKind.Array)
+            throw new InvalidOperationException("Unexpected Lidarr artist inventory format.");
+        lidarrUrl = validated;
+        lidarrKey = apiKey; // Memory only; not included in checkpoints.
+        connected = true;
+    }
 
     static List<ArtistAudit> VerifiedArtistsMissingFromLidarr(EvidenceAudit audit,
         IReadOnlyList<LidarrArtist> known)
@@ -111,9 +265,131 @@ sealed partial class DesktopServer
                 total = s.Total, completed = s.Completed, addedArtists = s.AddedArtists,
                 existingArtists = s.ExistingArtists, monitoredAlbums = s.MonitoredAlbums,
                 alreadyMonitoredAlbums = s.AlreadyMonitoredAlbums, searchesQueued = s.SearchesQueued,
-                failed = s.Failed,
+                failed = s.Failed, catalogVerified = s.CatalogVerified,
+                catalogPending = Math.Max(0, s.Total - s.CatalogVerified),
+                catalogComplete = s.CatalogComplete, rechecking = s.Rechecking,
+                restored = s.RecoveredFromCheckpoint,
+                checkpointUnreadable = importCheckpointUnreadable,
+                interrupted = s.Total > 0 && (!s.Done || s.Completed < s.Total),
+                inFlightAction = s.InFlightAction, startedUtc = s.StartedUtc,
+                endpointMatches = string.IsNullOrEmpty(s.EndpointFingerprint) ||
+                    (connected && EndpointHash(lidarrUrl) == s.EndpointFingerprint),
                 events = s.Events.TakeLast(80).ToArray() };
         }
+    }
+
+    // A queued search is NOT proof that the artist/album exists in Lidarr.
+    // These GETs are read-only; we never repeat a write to resolve uncertainty.
+    async Task<bool> ArtistIsInCatalogAsync(string mbid, CancellationToken ct)
+    {
+        using var artists = await ImportGetAsync("/api/v1/artist", ct);
+        return artists.RootElement.ValueKind == JsonValueKind.Array &&
+            artists.RootElement.EnumerateArray().Any(x => x.ValueKind == JsonValueKind.Object &&
+                PropText(x, "foreignArtistId").Equals(mbid, StringComparison.OrdinalIgnoreCase));
+    }
+
+    async Task<bool> AlbumIsInCatalogAsync(int albumId, CancellationToken ct)
+    {
+        using var album = await ImportGetAsync("/api/v1/album/" + albumId, ct);
+        return album.RootElement.ValueKind == JsonValueKind.Object &&
+            PropInt(album.RootElement, "id") == albumId && PropBool(album.RootElement, "monitored");
+    }
+
+    void ConfirmArtist(string mbid)
+    {
+        lock (importGate) { importWrite.ConfirmedArtistIds.Add(mbid); SaveImportCheckpointLocked(); }
+    }
+
+    void ConfirmAlbum(int albumId)
+    {
+        lock (importGate) { importWrite.ConfirmedAlbumIds.Add(albumId); SaveImportCheckpointLocked(); }
+    }
+
+    async Task<bool> TryConfirmArtistAsync(string mbid, CancellationToken ct)
+    {
+        for (var attempt = 0; attempt < 3; attempt++)
+        {
+            ct.ThrowIfCancellationRequested();
+            try { if (await ArtistIsInCatalogAsync(mbid, ct)) { ConfirmArtist(mbid); return true; } }
+            catch (Exception ex) when (ex is not OperationCanceledException) { /* Subsequent read-only check may succeed. */ }
+            if (attempt < 2) await Task.Delay(650, ct);
+        }
+        return false;
+    }
+
+    async Task<bool> TryConfirmAlbumAsync(int albumId, CancellationToken ct)
+    {
+        for (var attempt = 0; attempt < 3; attempt++)
+        {
+            ct.ThrowIfCancellationRequested();
+            try { if (await AlbumIsInCatalogAsync(albumId, ct)) { ConfirmAlbum(albumId); return true; } }
+            catch (Exception ex) when (ex is not OperationCanceledException) { /* Subsequent read-only check may succeed. */ }
+            if (attempt < 2) await Task.Delay(650, ct);
+        }
+        return false;
+    }
+
+    // Read-only reconciliation after writes, including an explicit retry for
+    // metadata updates that Lidarr exposes only after a short delay.
+    async Task RecheckImportCatalogAsync(CancellationToken ct, bool alreadyReserved = false)
+    {
+        string[] artists; int[] albums;
+        lock (importGate)
+        {
+            if (importWrite.Total <= 0 || importWrite.Running ||
+                (importWrite.Rechecking && !alreadyReserved))
+                return;
+            if (!connected || EndpointHash(lidarrUrl) != importWrite.EndpointFingerprint)
+            {
+                importWrite.Rechecking = false;
+                importWrite.Phase = "Reconnect to the original Lidarr instance before rechecking this import.";
+                return;
+            }
+            importWrite.Rechecking = true;
+            importWrite.Phase = "Confirming all selected artists and albums in Lidarr";
+            artists = importWrite.ExpectedArtistIds.Except(importWrite.ConfirmedArtistIds,
+                StringComparer.OrdinalIgnoreCase).ToArray();
+            albums = importWrite.ExpectedAlbumIds.Except(importWrite.ConfirmedAlbumIds).ToArray();
+        }
+        try
+        {
+            foreach (var mbid in artists)
+            {
+                ct.ThrowIfCancellationRequested();
+                await TryConfirmArtistAsync(mbid, ct);
+            }
+            foreach (var id in albums)
+            {
+                ct.ThrowIfCancellationRequested();
+                await TryConfirmAlbumAsync(id, ct);
+            }
+        }
+        catch (OperationCanceledException) { }
+        finally
+        {
+            lock (importGate)
+            {
+                importWrite.Rechecking = false;
+                importWrite.Phase = importWrite.CatalogComplete
+                    ? "Selected artists and albums confirmed in Lidarr. Background downloads may continue."
+                    : $"Lidarr catalog verification: {importWrite.CatalogVerified} of {importWrite.Total} confirmed; " +
+                      (importWrite.Failed > 0 ? "review failed requests." : "unconfirmed items can be rechecked without resending writes.");
+                SaveImportCheckpointLocked();
+            }
+        }
+    }
+
+    void StartImportCatalogRecheck()
+    {
+        lock (importGate)
+        {
+            if (importWrite.Total <= 0 || importWrite.Running || importWrite.Rechecking)
+                throw new InvalidOperationException("Wait for the import or existing catalog check to finish.");
+            if (!connected || EndpointHash(lidarrUrl) != importWrite.EndpointFingerprint)
+                throw new InvalidOperationException("Reconnect to the original Lidarr instance before rechecking the checkpoint.");
+            importWrite.Rechecking = true; // Reserve before scheduling; two clicks cannot race.
+        }
+        _ = Task.Run(() => RecheckImportCatalogAsync(CancellationToken.None, alreadyReserved: true));
     }
 
     async Task<object> ImportBackgroundAsync(CancellationToken ct)
@@ -153,6 +429,8 @@ sealed partial class DesktopServer
                 case "failed": importWrite.Failed++; break;
             }
             importWrite.Phase = $"{importWrite.Completed} of {importWrite.Total} actions checked";
+            importWrite.InFlightAction = "";
+            SaveImportCheckpointLocked();
         }
     }
 
@@ -177,7 +455,8 @@ sealed partial class DesktopServer
         var qualityId = PropInt(payload, "qualityId");
         var metadataId = PropInt(payload, "metadataId");
         lock (importGate)
-            if (importWrite.Running) throw new InvalidOperationException("Lidarr import is already running.");
+            if (importCheckpointUnreadable || importWrite.Running || importWrite.Total > 0 && !importWrite.CatalogComplete)
+                throw new InvalidOperationException("A prior import is still pending or interrupted. Reconcile its saved checkpoint before starting a new batch; no duplicate searches were sent.");
         EvidenceAudit audit; List<LidarrArtist> known; HashSet<int> eligible;
         lock (verificationGate)
         {
@@ -206,13 +485,25 @@ sealed partial class DesktopServer
         }
         lock (importGate)
         {
-            if (importWrite.Running) throw new InvalidOperationException("Another import has already started.");
+            if (importCheckpointUnreadable || importWrite.Running || importWrite.Total > 0 && !importWrite.CatalogComplete)
+                throw new InvalidOperationException("Resolve the previous import checkpoint before starting another batch.");
             importCancellation?.Dispose();
             importCancellation = new CancellationTokenSource();
             importWrite = new LidarrWriteState {
                 Running = true, Mode = mode, Total = artists.Count + albumIds.Length,
+                ExpectedArtistIds = artists.Select(x => x.ArtistId).ToArray(),
+                ExpectedAlbumIds = albumIds.ToArray(),
+                EndpointFingerprint = EndpointHash(lidarrUrl), StartedUtc = DateTimeOffset.UtcNow,
                 Phase = "Starting explicitly approved Lidarr changes"
             };
+            try { SaveImportCheckpointLocked(); }
+            catch
+            {
+                // No Lidarr write has been attempted yet. Leave this process
+                // able to retry after its local storage problem is corrected.
+                importWrite = new LidarrWriteState();
+                throw;
+            }
         }
         var token = importCancellation.Token;
         _ = Task.Run(() => ExecuteImportAsync(artists, albumIds, mode, rootPath, qualityId, metadataId, token));
@@ -237,7 +528,8 @@ sealed partial class DesktopServer
                 {
                     if (present.Contains(artist.ArtistId))
                     {
-                        ImportProgress("artist", artist.SourceName, "artist-exists", "Already found in Lidarr; no duplicate was added.");
+                        ConfirmArtist(artist.ArtistId);
+                        ImportProgress("artist", artist.SourceName, "artist-exists", "Existing artist confirmed in Lidarr; no duplicate was added.");
                         continue;
                     }
                     // Lidarr lookup yields its canonical artist model. Never manufacture
@@ -261,10 +553,13 @@ sealed partial class DesktopServer
                     resource["addOptions"] = new JsonObject {
                         ["monitor"] = "none", ["monitored"] = false, ["searchForMissingAlbums"] = false
                     };
+                    MarkImportWriteIntent("Add artist " + artist.ArtistId);
                     await ImportWriteAsync(HttpMethod.Post, "/api/v1/artist", resource, ct);
                     present.Add(artist.ArtistId);
+                    var confirmed = await TryConfirmArtistAsync(artist.ArtistId, ct);
                     ImportProgress("artist", artist.SourceName, "artist-added",
-                        "Artist added without automatic discography monitoring or searching; Lidarr may still be refreshing metadata.");
+                        confirmed ? "Artist confirmed in Lidarr. No automatic discography search was sent."
+                            : "Lidarr accepted the artist; catalog read-back is pending. Use Recheck if needed.");
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {
@@ -292,23 +587,32 @@ sealed partial class DesktopServer
                     {
                         var updated = JsonNode.Parse(artistResource.GetRawText())!.AsObject();
                         updated["monitored"] = true;
+                        MarkImportWriteIntent("Monitor parent artist #" + artistId);
                         await ImportWriteAsync(HttpMethod.Put, "/api/v1/artist/" + artistId, updated, ct);
                     }
                     bool already = PropBool(album, "monitored");
                     if (!already)
+                    {
+                        MarkImportWriteIntent("Monitor album #" + albumId);
                         await ImportWriteAsync(HttpMethod.Put, "/api/v1/album/monitor",
                             new { albumIds = new[] { albumId }, monitored = true }, ct);
+                    }
+                    var catalogConfirmed = await TryConfirmAlbumAsync(albumId, ct);
                     if (mode == "search")
                     {
+                        MarkImportWriteIntent("Queue album search #" + albumId);
                         await ImportWriteAsync(HttpMethod.Post, "/api/v1/command",
                             new { name = "AlbumSearch", albumIds = new[] { albumId } }, ct);
                         ImportProgress("album", name, "search-queued",
-                            $"Album #{albumId} monitored; Lidarr accepted the search request. Download and file import are not yet confirmed.");
+                            catalogConfirmed
+                                ? $"Album #{albumId} confirmed monitored in Lidarr; search queued. Download and file import are not yet confirmed."
+                                : $"Album #{albumId} search queued; album monitoring still needs catalog read-back confirmation.");
                     }
                     else
                     {
                         ImportProgress("album", name, already ? "album-already-monitored" : "album-monitored",
-                            $"Album #{albumId} is monitored. No search or download requested.");
+                            catalogConfirmed ? $"Album #{albumId} confirmed monitored in Lidarr. No search requested."
+                                : $"Album #{albumId} monitoring requested; catalog read-back confirmation is still pending.");
                     }
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
@@ -335,8 +639,12 @@ sealed partial class DesktopServer
             lock (importGate)
             {
                 importWrite.Running = false; importWrite.Done = true;
-                importWrite.Phase = "Lidarr requests finished; background metadata, searches and downloads may still be running.";
+                importWrite.Rechecking = true;
+                importWrite.Phase = "All Lidarr requests checked; confirming catalog changes before completion.";
+                try { SaveImportCheckpointLocked(); }
+                catch (Exception ex) { Log("Could not save final import checkpoint: " + ex.Message); }
             }
+            _ = Task.Run(() => RecheckImportCatalogAsync(CancellationToken.None, alreadyReserved: true));
         }
     }
 
@@ -352,6 +660,22 @@ sealed partial class DesktopServer
 
     static void LidarrImportSelfTest()
     {
+        var status = new LidarrWriteState { Total = 2, Completed = 2, Done = true,
+            SearchesQueued = 1, ExpectedArtistIds = new[] { "test-artist" }, ExpectedAlbumIds = new[] { 45 } };
+        if (status.CatalogComplete || status.CatalogVerified != 0)
+            throw new Exception("Queued search requests must not be treated as catalog completion.");
+        status.ConfirmedArtistIds.Add("test-artist");
+        if (status.CatalogComplete || status.CatalogVerified != 1)
+            throw new Exception("Incomplete catalog must stay on the progress screen.");
+        status.ConfirmedAlbumIds.Add(45);
+        if (!status.CatalogComplete)
+            throw new Exception("Only all-confirmed catalog entries should unlock the final screen.");
+        status.Rechecking = true;
+        if (status.CatalogComplete)
+            throw new Exception("Do not celebrate during a catalog recheck.");
+        status.Rechecking = false; status.Failed = 1;
+        if (status.CatalogComplete)
+            throw new Exception("Failed Lidarr requests must prevent a success celebration.");
         var audit = new EvidenceAudit();
         audit.Artists.Add(new ArtistAudit { SourceName = "Verified", ArtistId = "a1a1a1a1-0000-4000-8000-000000000001", Status = "high" });
         audit.Artists.Add(new ArtistAudit { SourceName = "Unverified", ArtistId = "a1a1a1a1-0000-4000-8000-000000000002", Status = "ambiguous" });
@@ -361,6 +685,6 @@ sealed partial class DesktopServer
         var known = new List<LidarrArtist> { new("Verified", audit.Artists[0].ArtistId, 23) };
         if (VerifiedArtistsMissingFromLidarr(audit, known).Count != 0)
             throw new Exception("Importer must never re-add artists already in Lidarr by MusicBrainz ID.");
-        Console.WriteLine("PASS: Lidarr importer verified-artist allowlist and existing-artist exclusion");
+        Console.WriteLine("PASS: Lidarr catalog-confirmation gate, verified-artist allowlist and existing-artist exclusion");
     }
 }

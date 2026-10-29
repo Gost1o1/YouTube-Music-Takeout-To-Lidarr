@@ -293,6 +293,7 @@ sealed partial class DesktopServer
         int savedAlbumCount;
         List<ManualFallbackEntry> manualEntries;
         HashSet<string> restored;
+        object progress;
         lock (verificationGate)
         {
             var allItems = BuildReviewQueue();
@@ -303,14 +304,34 @@ sealed partial class DesktopServer
             restored = RestoredManualFallbackKeys();
             items = allItems.Where(x => !handled.Contains(x.Key)).ToList();
             savedAlbumCount = inventory.Done ? inventory.AlbumGroups.Count(g => GetAlbumReviewBookmark(g) != null) : 0;
-
+            // Base every counter on the *same* current review queue and saved
+            // decisions. Verification's earlier totals can be stale after a
+            // manual choice or an automatic source-only save.
+            object ForKind(string kind, int total)
+            {
+                var unresolved = allItems.Where(x => x.Kind == kind).ToArray();
+                var addressed = unresolved.Count(x =>
+                    handled.Contains(x.Key) ||
+                    ((x.Disposition is "candidate-for-planning" or "needs-research" or "defer") &&
+                     x.EvidenceStatus == "current"));
+                var automatic = Math.Max(0, total - unresolved.Length);
+                return new { total, automatic, reviewed = addressed,
+                    addressed = Math.Min(total, automatic + addressed),
+                    pending = Math.Max(0, unresolved.Length - addressed),
+                    unresolvedIdentities = unresolved.Length };
+            }
+            progress = new {
+                artist = ForKind("artist", latestAudit!.Artists.Count),
+                song = ForKind("song", latestAudit.Songs.Count)
+            };
         }
         await Respond(ctx, 200, new { items = items.Select(i => new {
             key = i.Key, kind = i.Kind, row = i.Row, manualOverride = restored.Contains(i.Key), artist = i.Artist, song = i.Song,
             album = i.Album, youtubeUrl = i.YouTubeUrl, reason = i.Reason, disposition = i.Disposition,
             selected = i.Selected, note = i.Note, evidenceStatus = i.EvidenceStatus,
             candidates = i.Candidates.Select(c => new { id = c.Id, label = c.Label, evidence = c.Evidence }).ToArray()
-        }).ToArray(), savedAlbumCount, savedDecisions = items.Count(i => i.Disposition != "unreviewed"),
+        }).ToArray(), savedAlbumCount, reviewProgress = progress,
+            savedDecisions = items.Count(i => i.Disposition != "unreviewed"),
             manualItems = manualEntries.Select(x => new { key = x.ReviewKey, kind = x.Kind,
                 artist = x.Artist, song = x.Song, album = x.Album, youtubeUrl = x.YouTubeUrl,
                 saveMode = x.SaveMode, reason = x.Reason, updatedUtc = x.UpdatedUtc }).ToArray(),

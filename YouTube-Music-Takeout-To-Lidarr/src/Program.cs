@@ -36,12 +36,73 @@ sealed partial class DesktopServer
     CancellationTokenSource? verificationCancellation;
     CancellationTokenSource? supplementalCancellation;
     CancellationTokenSource? recoveryCancellation;
+    readonly object tabsGate = new();
+    readonly Dictionary<string, DateTimeOffset> openBrowserTabs = new(StringComparer.Ordinal);
+    bool aBrowserTabWasOpened;
+    DateTimeOffset? noBrowserTabsSince;
+
+    void BrowserTabHeartbeat(string id)
+    {
+        if (!Guid.TryParse(id, out _)) throw new InvalidOperationException("Invalid browser tab identifier.");
+        lock (tabsGate)
+        {
+            openBrowserTabs[id] = DateTimeOffset.UtcNow;
+            aBrowserTabWasOpened = true;
+            noBrowserTabsSince = null;
+        }
+    }
+    void BrowserTabClosed(string id)
+    {
+        if (!Guid.TryParse(id, out _)) return;
+        lock (tabsGate)
+        {
+            openBrowserTabs.Remove(id);
+            if (aBrowserTabWasOpened && openBrowserTabs.Count == 0)
+                noBrowserTabsSince ??= DateTimeOffset.UtcNow;
+        }
+    }
+    async Task WatchBrowserTabsAsync(CancellationToken ct)
+    {
+        try
+        {
+            while (!ct.IsCancellationRequested)
+            {
+                await Task.Delay(5000, ct);
+                bool shouldStop;
+                lock (tabsGate)
+                {
+                    var now = DateTimeOffset.UtcNow;
+                    foreach (var dead in openBrowserTabs.Where(x => now - x.Value > TimeSpan.FromSeconds(120))
+                                 .Select(x => x.Key).ToArray()) openBrowserTabs.Remove(dead);
+                    if (aBrowserTabWasOpened && openBrowserTabs.Count == 0)
+                        noBrowserTabsSince ??= now;
+                    shouldStop = aBrowserTabWasOpened && openBrowserTabs.Count == 0 &&
+                        noBrowserTabsSince.HasValue && now - noBrowserTabsSince.Value > TimeSpan.FromSeconds(16);
+                }
+                if (!shouldStop) continue;
+                // Finish explicit Lidarr requests and background catalog checks first.
+                // The checkpoint captures every attempted write; never cancel a write
+                // just because its browser tab closed.
+                bool workInProgress;
+                lock (importGate) workInProgress = importWrite.Running || importWrite.Rechecking;
+                lock (verificationGate) workInProgress |= pipelineActive || verification.Running || inventory.Running ||
+                    supplemental.Running || recovery.Running;
+                if (workInProgress) continue;
+                lock (tabsGate) if (openBrowserTabs.Count != 0) continue;
+                Log("Last app browser tab closed; exiting after completed work and safety grace period.");
+                try { appStop?.Cancel(); listener?.Stop(); } catch { }
+                return;
+            }
+        }
+        catch (OperationCanceledException) { }
+    }
     // Invalidated when source, audit, or Lidarr connection changes.
     void ResetLidarrComparison() { inventoryCancellation?.Cancel(); inventory = new InventoryState(); stagedAlbumSearches.Clear(); }
 
     public async Task RunAsync()
     {
         Directory.CreateDirectory(logDir);
+        LoadImportCheckpoint();
         var portListener = new System.Net.Sockets.TcpListener(IPAddress.Loopback, 0);
         portListener.Start();
         int port = ((IPEndPoint)portListener.LocalEndpoint).Port;
@@ -51,7 +112,7 @@ sealed partial class DesktopServer
         listener = server;
         server.Prefixes.Add(address);
         server.Start();
-        Console.WriteLine("YouTube Music to Lidarr — .NET v0.9.1.15.6 (opt-in Lidarr artist/album import)");
+        Console.WriteLine("YouTube Music to Lidarr — .NET v0.9.1.15.8 (durable checkpoints, accurate review progress)");
         Console.WriteLine("No PowerShell scripts are run. No changes to Windows execution policy.");
         Console.WriteLine("Lidarr changes require explicit final-step approval. Source metadata cannot create audio files.");
         Console.WriteLine("Local address: " + address);
@@ -60,6 +121,7 @@ sealed partial class DesktopServer
         using var stop = new CancellationTokenSource();
         appStop = stop;
         Console.CancelKeyPress += (_, e) => { e.Cancel = true; stop.Cancel(); try { server.Stop(); } catch { } };
+        var tabWatcher = WatchBrowserTabsAsync(stop.Token);
         try { Process.Start(new ProcessStartInfo(address) { UseShellExecute = true }); }
         catch (Exception ex) { Console.WriteLine("Open this address in your browser: " + address + " (" + ex.Message + ")"); }
         while (!stop.IsCancellationRequested)
@@ -127,17 +189,30 @@ sealed partial class DesktopServer
             lock (importGate)
                 if (importWrite.Running && path is not ("/api/lidarr/import/status" or
                     "/api/lidarr/import/background" or
-                    "/api/lidarr/import/results.csv" or "/api/heartbeat" or
+                    "/api/lidarr/import/results.csv" or "/api/heartbeat" or "/api/app/tab-close" or
                     "/api/app/exit" or "/api/state" or "/api/review/queue" or
                     "/api/lidarr/inventory/staging-queue" or "/api/lidarr/inventory/items"))
                     throw new InvalidOperationException("A Lidarr import is running. Wait for completion before changing source data or starting other tasks.");
             switch (path)
             {
-                case "/api/heartbeat": await Respond(ctx, 200, new { ok = true }); return;
+                case "/api/heartbeat":
+                    BrowserTabHeartbeat(Value("tabId"));
+                    await Respond(ctx, 200, new { ok = true }); return;
+                case "/api/app/tab-close":
+                    BrowserTabClosed(Value("tabId"));
+                    await Respond(ctx, 200, new { ok = true }); return;
                 case "/api/lidarr/import/options":
                     await Respond(ctx, 200, await ImportOptionsAsync(CancellationToken.None)); return;
                 case "/api/lidarr/import/status":
                     await Respond(ctx, 200, ImportStatus()); return;
+                case "/api/lidarr/import/connect":
+                    await ReconnectImportCheckpointAsync(Value("url"), Value("key"));
+                    await Respond(ctx, 200, new { connected = true, readOnly = true,
+                        message = "Original Lidarr connection restored. No artist, album, or search write was sent." }); return;
+                case "/api/lidarr/import/recheck":
+                    StartImportCatalogRecheck();
+                    await Respond(ctx, 200, new { started = true, readOnly = true,
+                        message = "Rechecking artist and album catalog status. No Lidarr writes or searches were sent." }); return;
                 case "/api/lidarr/import/background":
                     await Respond(ctx, 200, await ImportBackgroundAsync(CancellationToken.None)); return;
                 case "/api/lidarr/import/start":
