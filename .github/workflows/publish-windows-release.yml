@@ -5,11 +5,11 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Release tag, for example v0.9.1.15.5'
+        description: 'Release tag, for example v0.9.1.15.6'
         required: true
         type: string
       prerelease:
-        description: 'Mark as a preview release (recommended until import is implemented)'
+        description: 'Mark as a preview release (recommended while import is experimental)'
         required: true
         type: boolean
         default: true
@@ -17,6 +17,9 @@ on:
 jobs:
   publish:
     runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: YouTube-Music-Takeout-To-Lidarr
     permissions:
       contents: write
     steps:
@@ -44,6 +47,7 @@ jobs:
             'tools/offline_v091153_song_fallback.js',
             'tools/offline_v091154_song_titles_history.js',
             'tools/offline_v091155_review_progress_provenance.js',
+            'tools/offline_v091156_lidarr_import.js',
             'tools/offline_v0918_ui_smoke.js',
             'tools/offline_v0921_navigation_resume.js'
           ) | ForEach-Object {
@@ -74,7 +78,7 @@ jobs:
           PRERELEASE: ${{ inputs.prerelease }}
         run: |
           if ($env:RELEASE_TAG -notmatch '^v\d+(\.\d+){2,5}$') {
-            throw 'Invalid release tag. Use a version like v0.9.1.15.5.'
+            throw 'Invalid release tag. Use a version like v0.9.1.15.6.'
           }
           $releaseArgs = @(
             'release', 'create', $env:RELEASE_TAG,
