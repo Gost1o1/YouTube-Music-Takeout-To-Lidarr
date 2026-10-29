@@ -44,11 +44,11 @@ function clickOption(option){return handlers.click({target:{closest(selector){re
   await clickFlow('open-final');if(!el.innerHTML.includes('Finalize Lidarr Import'))throw Error('Final page absent');
   await clickFlow('confirm');
   if(!calls.some(c=>c.name==='lidarr/inventory/stage-albums'&&c.data.stage===true))throw Error('Local staging was not called');
-  if(!el.innerHTML.includes('Congratulations!'))throw Error('Completion page absent');
-  if(!el.innerHTML.includes('fconfetti'))throw Error('Confetti absent');
+  if(!el.innerHTML.includes('Album selection prepared'))throw Error('Local staging summary absent');
+  if(el.innerHTML.includes('fconfetti'))throw Error('Local staging must not celebrate before Lidarr confirms catalog changes');
   await clickFlow('about');if(!el.innerHTML.includes('Quinton Burgess')||!el.innerHTML.includes('Gost1o1'))throw Error('About page absent');
   await clickFlow('github-start');if(!el.innerHTML.includes('CODE-1234'))throw Error('GitHub authorization UI absent');
   // No real star is sent until user explicitly presses Star.
   if(calls.some(c=>c.name==='github/star'))throw Error('GitHub star called without authorization and explicit click');
-  console.log('PASS: manual selection/save, evidence, migration select-all, local staging progress, completion confetti, developer page, GitHub device authorization');
+  console.log('PASS: manual selection, migration select-all, local staging without premature confetti, developer page, GitHub authorization');
 })().catch(e=>{console.error(e);process.exitCode=1});

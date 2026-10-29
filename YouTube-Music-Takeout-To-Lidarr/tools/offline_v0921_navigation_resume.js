@@ -13,13 +13,14 @@ function makeRunner(store,opts={}){
  const pipeline=opts.pipeline||idle;
  const handlers={};
  const sb={console,Set,Map,Error,URL,JSON,Math,Date,Number,String,Promise,Array,Object,Boolean,
+  crypto:{randomUUID:()=>"123e4567-e89b-42d3-a456-426614174000"},
   setTimeout(fn){timers.push(fn);return timers.length},clearTimeout(){},setInterval(fn){return 1},clearInterval(){},
   sessionStorage:{getItem(k){return store.get(k)||null},setItem(k,v){store.set(k,v)},removeItem(k){store.delete(k)}},
   document:{getElementById(id){return id==='app'?element:null},addEventListener(k,fn){handlers[k]=fn}},
   navigator:{clipboard:{writeText:async()=>{}}},
   window:{addEventListener(k,fn){events[k]=fn},open(){},Flow918:undefined},
   fetch:async function(url){calls.push(url);const endpoints={
-   '/api/pipeline/status':pipeline,'/api/state':stateObj,
+   '/api/pipeline/status':pipeline,'/api/state':stateObj,'/api/lidarr/import/status':{total:0,restored:false},
    '/api/lidarr/inventory/status':{done:true,totalSongs:1,review:293,toAdd:2212,filesRead:0},
    '/api/review/queue':{items:[review,{...review,key:'song:001',kind:'song'}]},
    '/api/lidarr/inventory/staging-queue':{items:stage},

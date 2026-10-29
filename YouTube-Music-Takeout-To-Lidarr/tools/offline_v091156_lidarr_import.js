@@ -80,12 +80,26 @@ async function flush(){for(let i=0;i<12;i++)await new Promise(done=>setImmediate
  assert.equal(F.page,'import-progress');
  assert.match(html,/0 \/ 1/);
  mock.status={running:false,done:true,total:2,completed:2,failed:0,addedArtists:1,
-   monitoredAlbums:0,alreadyMonitoredAlbums:0,searchesQueued:1,phase:'Lidarr requests finished',events:[]};
+   monitoredAlbums:0,alreadyMonitoredAlbums:0,searchesQueued:1,catalogVerified:1,
+   catalogPending:1,catalogComplete:false,phase:'Waiting for album catalog confirmation',events:[]};
+ await F.restoreNavigation({page:'import-progress',reviewKind:'song',reviewIndex:{song:0,artist:0},selected:[50]});
+ await flush();
+ assert.equal(F.page,'import-progress','requests queued must not show the final celebration');
+ assert.match(html,/1 \/ 2<\/b><span>Confirmed in Lidarr/);
+ assert.match(html,/Recheck Lidarr Catalog/);
+ assert.doesNotMatch(html,/fconfetti/);
+ mock.status={...mock.status,catalogVerified:2,catalogPending:0,catalogComplete:true,
+   phase:'Selected catalog confirmed in Lidarr'};
  await F.restoreNavigation({page:'import-progress',reviewKind:'song',reviewIndex:{song:0,artist:0},selected:[50]});
  await flush();
  assert.equal(F.page,'import-result','refresh recovers completed server result');
  assert.match(html,/Artists added/);
+ assert.match(html,/Selected catalog verified/);
+ assert.doesNotMatch(html,/fconfetti/,'a saved source-only song prevents a false whole-library celebration');
+ assert.match(html,/still need manual import/);
  assert.match(html,/Lidarr background activity/);
  assert.match(html,/Download Results CSV/);
- console.log('PASS: final-step choice, no-album navigation, explicit consent, API progress, Lidarr background activity and refresh restoration');
+ F.manualEntries=[];F.render();
+ assert.match(html,/fconfetti/,'confetti appears when the entire reviewed source set has a supported catalog outcome');
+ console.log('PASS: Lidarr consent, read-back progress, no premature celebration with manual proposals, background activity and refresh restoration');
 })().catch(e=>{console.error(e);process.exitCode=1});
