@@ -39,6 +39,7 @@ jobs:
           node tools/offline_v091154_song_titles_history.js
           node tools/offline_v091155_review_progress_provenance.js
           node tools/offline_v091156_lidarr_import.js
+          node tools/offline_v091158_checkpoint_safety.js
           node tools/offline_v0918_ui_smoke.js
           node tools/offline_v0921_navigation_resume.js
       - name: Publish Windows application
