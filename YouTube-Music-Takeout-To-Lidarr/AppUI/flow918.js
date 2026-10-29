@@ -1,4 +1,4 @@
-/* v0.9.1.15.6 opt-in Lidarr artist/album import and confirmed API progress. */
+/* v0.9.1.15.8 durable Lidarr checkpoints, truthful review progress and import lifecycle. */
 (() => {
  'use strict';
  const F={active:false,page:'manual',reviewKind:'artist',reviewIndex:{artist:0,song:0},reviewOrder:{artist:[],song:[]},reviewHistory:{artist:[],song:[]},choice:{},selected:new Set(),tab:'add',stageItems:[],job:[],completed:0,failed:false,gh:null,ghPoll:null,error:'',working:false,media:{},mediaLoading:new Set(),mediaPromises:new Map(),bundlePromises:new Map(),manualEntries:[],autoSaving:new Set(),autoAttempted:new Set(),autoFailed:new Set(),classifying:false,classifyStatus:null,classifyJob:null,editingEntry:null,youtubePlayer:null,audio:null,audioTimer:null,
@@ -6,6 +6,7 @@
  const root=()=>document.getElementById('flow918');
  const E=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
  const num=x=>Number(x||0).toLocaleString();
+ const elapsedLabel=seconds=>{if(!Number.isFinite(seconds)||seconds<0)return 'Calculating…';const s=Math.floor(seconds),m=Math.floor(s/60),h=Math.floor(m/60);return h?`${h}h ${m%60}m`:m?`${m}m ${s%60}s`:`${s}s`};
  const candidates=x=>(x?.candidates||[]).slice(0,12);
  const records=()=>recordsFor(F.reviewKind);
  const current=()=>records()[Math.min(F.reviewIndex[F.reviewKind],records().length-1)];
@@ -27,10 +28,16 @@
    return [...new Set(result)];
  }
  function realStats(kind){
+  const authoritative=state.reviewQueue?.reviewProgress?.[kind];
+  if(authoritative&&Number.isFinite(Number(authoritative.total))){
+   const total=Number(authoritative.total),baseline=Number(authoritative.automatic)||0;
+   const reviewed=Number(authoritative.reviewed)||0,resolved=Number(authoritative.addressed)||0;
+   return {total,baseline,reviewed,resolved,unmatched:Number(authoritative.pending)||0};
+  }
   const q=state.reviewQueue?.items||[];
-  const fromReview=new Set(q.filter(x=>x.kind===kind&&x.disposition==='candidate-for-planning'&&
-     x.evidenceStatus!=='stale-candidate-requires-review'&&
-     candidates(x).some(c=>c.id===x.selected)).map(x=>x.key));
+  const fromReview=new Set(q.filter(x=>x.kind===kind&&
+     ['candidate-for-planning','needs-research','defer'].includes(x.disposition)&&
+     x.evidenceStatus!=='stale-candidate-requires-review').map(x=>x.key));
   for(const saved of F.manualEntries)if(saved.kind===kind)fromReview.add(saved.key);
   if(kind==='artist'){
    const total=state.verify?.totalArtists||new Set(state.tracks.map(t=>String(t.Artist||'').trim().toLowerCase()).filter(Boolean)).size||951;
@@ -44,7 +51,7 @@
   const baseline=Math.max(0,total-reviewCount),resolved=Math.min(total,baseline+fromReview.size);
   return {total,baseline,reviewed:resolved-baseline,resolved,unmatched:total-resolved};
  }
- function progressCard(name,kind){const st=realStats(kind),pct=st.total?Math.floor(st.resolved/st.total*100):0;return `<div class="fstat"><h2 style="text-align:center">${name}</h2><div class="fbar" role="progressbar" aria-label="${E(name)} addressed" aria-valuemin="0" aria-valuemax="${st.total}" aria-valuenow="${st.resolved}"><i style="width:${pct}%"></i></div><div class="fnums"><div class="fnum"><b>${num(st.resolved)} / ${num(st.total)}</b><span>Addressed</span></div><div class="fnum"><b>${num(st.unmatched)}</b><span>Still needs review</span></div></div><div class="muted">${num(st.baseline)} from matching · ${num(st.reviewed)} handled in review</div></div>`}
+ function progressCard(name,kind){const st=realStats(kind),pct=st.total?Math.floor(st.resolved/st.total*100):0;return `<div class="fstat"><h2 style="text-align:center">${name}</h2><div class="fbar" role="progressbar" aria-label="${E(name)} addressed" aria-valuemin="0" aria-valuemax="${st.total}" aria-valuenow="${st.resolved}"><i style="width:${pct}%"></i></div><div class="fnums"><div class="fnum"><b>${num(st.resolved)} / ${num(st.total)}</b><span>Addressed</span></div><div class="fnum"><b>${num(st.unmatched)}</b><span>Still needs review</span></div></div><div class="muted">${num(st.baseline)} from matching · ${num(st.reviewed)} handled in review</div><div class="muted">Addressed means a decision was saved, including “None of these”; it does not prove the artist or recording exists in Lidarr.</div></div>`}
  function selectedChoice(x){const saved=candidates(x).findIndex(c=>c.id===x?.selected);return F.choice[key(x)]!==undefined?F.choice[key(x)]:x?.disposition==='needs-research'?-1:x?.disposition==='candidate-for-planning'&&saved>=0?saved:null}
  function mediaKey(x,id=''){return x?.key+':'+id}
  function reviewPicture(x,id,alt){
@@ -105,7 +112,7 @@
    F.bundlePromises.set(x.key,p);
    return p;
  }
- async function refreshManualQueue(){
+ async function refreshManualQueue(renderNow=true){
     const previous={};
     for(const kind of ['artist','song']){
       const list=recordsFor(kind),index=F.reviewIndex[kind];
@@ -124,7 +131,7 @@
     // No cached choice may silently carry over to a different review row.
     const valid=new Set((latest.items||[]).map(x=>x.key));
     for(const k of Object.keys(F.choice))if(!valid.has(k))delete F.choice[k];
-    F.error='';F.render();
+    F.error='';if(renderNow)F.render();
  }
  function recordsFor(kind){
    const rows=(state.reviewQueue?.items||[]).filter(x=>x.kind===kind),order=F.reviewOrder[kind];
@@ -365,7 +372,7 @@
  function albumRow(item,interactive){let id=Number(item.albumId),selected=F.selected.has(id);return `<label class="frow ${interactive&&selected?'selected':''} ${!interactive?'passive':''}">${interactive?`<input type="checkbox" data-album="${id}" ${selected?'checked':''} aria-label="Select ${E(item.album)}"/>`:''}${art(item.artist||'A')}<div style="flex:1;min-width:0"><strong>${E(item.album||item.song||'Unresolved title')}</strong><small>${E(item.artist||'')} · ${num(item.safeSongs??1)} ${Number(item.safeSongs||1)===1?'song':'songs'}</small></div>${originTag('Algorithm')}</label>`}
  function manualRow(x){return `<div class="frow passive">${art(x.artist||'A')}<div style="flex:1;min-width:0"><strong>${E(x.song||'Untitled')}</strong><small>${E(x.artist||'Unknown artist')}${x.album?' · '+E(x.album):''}</small><small>Source metadata saved for later manual import; no verified recording or Lidarr write.</small></div>${originTag(x.saveMode==='auto'?'Auto Manual Review':'Manual Review')}<button class="fbtn" type="button" data-edit-manual="${E(x.key)}">Review / Edit</button></div>`;}
  function savedManualSummary(){const entries=F.manualEntries||[];if(!entries.length)return '';
-   return `<section class="fbox"><h2>Saved for Manual Import (${entries.length})</h2><div class="muted">These songs were saved from YouTube Music metadata, not imported or downloaded. They still require a supported manual acquisition/import path.</div>${entries.slice(0,60).map(manualRow).join('')}${entries.length>60?`<div class="muted">${entries.length-60} additional entries are available in Migration Preview.</div>`:''}</section>`;
+   return `<section class="fbox"><h2>Saved for Manual Import (${entries.length})</h2><div class="muted">These songs were saved from YouTube Music metadata, not imported or downloaded. They still require a supported manual acquisition/import path.</div><details class="fselected-albums"><summary>Review ${Math.min(entries.length,60)} saved source-only entries</summary><div class="fselected-list">${entries.slice(0,60).map(manualRow).join('')}</div>${entries.length>60?`<div class="muted">${entries.length-60} more entries are available in Migration Preview.</div>`:''}</details></section>`;
  }
  function preview(){
   const list=categorized(F.tab),rows=state.inventoryItems||[];
@@ -381,7 +388,7 @@
   ${F.tab==='existing'?'<div class="fshort">Takeout songs found in Lidarr catalog metadata or file records. Some may also need audio and appear under To Be Added.</div>':''}
   ${F.tab==='add'&&(handledSongs.length||handledArtists.length)?`<h3 style="margin-top:17px">Reviewed proposals (${handledSongs.length} songs, ${handledArtists.length} artists)</h3><div class="muted">These are planning records, not selectable album imports. User-chosen candidates and saved source metadata still need verification or a manual-import path.</div>${handledSongs.map(inventorySongRow).join('')}${handledArtists.map(inventoryArtistRow).join('')}`:''}
   ${F.tab==='add'&&list.length?'<h3 style="margin-top:17px">Album plans</h3>':''}
-  ${list.length?list.map(item=>F.tab==='manual'?manualRow(item):F.tab==='add'?albumRow(item,true):inventorySongRow(item)).join(''):(F.tab==='add'&&(handledSongs.length||handledArtists.length))?'':'<div class="fcenter muted" style="padding:20px">No entries in this category.</div>'}
+  ${list.length?`<div class="fpreview-list" role="region" aria-label="${E(F.tab)} music entries" tabindex="0">${list.map(item=>F.tab==='manual'?manualRow(item):F.tab==='add'?albumRow(item,true):inventorySongRow(item)).join('')}</div>`:(F.tab==='add'&&(handledSongs.length||handledArtists.length))?'':'<div class="fcenter muted" style="padding:20px">No entries in this category.</div>'}
   <div class="fend">${btn('Continue to Finalize Import →','open-final','primary')}</div></section>
   <div class="fend">${btn('← Manual Review','open-manual')}</div>`;}
  function final(){
@@ -396,7 +403,7 @@
    return `<h1>Finalize Lidarr Import</h1><section class="fbox">
       <h2>Ready to Send to Lidarr</h2>
       <div class="fsummary"><div class="fnum"><b>${artistCount}</b><span>Verified artists to add</span></div><div class="fnum"><b>${selected.length}</b><span>Selected albums</span></div><div class="fnum"><b>${num(count)}</b><span>Source songs on those albums</span></div></div>
-      ${selected.map(x=>albumRow(x,false)).join('')}
+      ${selected.length?`<details class="fselected-albums"><summary>Review ${num(selected.length)} selected album${selected.length===1?'':'s'}</summary><div class="fselected-list">${selected.map(x=>albumRow(x,false)).join('')}</div></details>`:''}
       ${!opts?'<div class="floading">Reading Lidarr root folders and profiles…</div>'+btn('Retry Settings','retry-import-settings'):`
          <div class="fshort"><strong>Choose what happens in Lidarr</strong><div class="fimportchoices">
            <label><input type="radio" name="flow918-import-mode" value="catalog" ${F.importMode==='catalog'?'checked':''}/> <strong>Add to Lidarr Only</strong><small>Add verified artists and monitor selected albums. No automatic searches.</small></label>
@@ -421,25 +428,46 @@
  }
  function importProgress(){
    const s=F.importStatus||{},total=s.total||0,done=s.completed||0,pct=total?Math.floor(100*done/total):0;
+   const confirmed=Math.min(total,Number(s.catalogVerified)||0),confirmedPct=total?Math.floor(100*confirmed/total):0;
+   const elapsed=s.startedUtc?Math.max(0,(Date.now()-Date.parse(s.startedUtc))/1000):0;
+   const rate=elapsed>15&&done>5?done/elapsed:0;
+   const eta=rate&&done<total?elapsedLabel((total-done)/rate):done>=total?'Requests checked':'Calculating…';
    const events=(s.events||[]).slice(-20).map(x=>`<div class="frow passive"><div><strong>${E(x.Name||x.name||x.Kind||'Lidarr')}</strong><small>${E(x.Outcome||x.outcome)} — ${E(x.Detail||x.detail)}</small></div></div>`).join('');
    return `<h1>Importing to Lidarr</h1><section class="fbox">
      <h2>${E(s.phase||'Waiting for Lidarr…')}</h2>
+     ${s.restored?`<div class="fsourcewarning"><strong>Previous import checkpoint restored.</strong> ${s.interrupted?'The previous process stopped before all requests were confirmed.':'The previous batch was saved.'} ${s.inFlightAction?'Last recorded write: '+E(s.inFlightAction)+'. ':''}No writes or searches will be resent automatically.</div>`:''}
+     ${s.restored&&!s.endpointMatches?`<div class="fshort"><strong>Reconnect to the original Lidarr server to verify the existing catalog (read-only)</strong><div class="ffields"><label>Lidarr URL<input id="flow918-recovery-url" value="${E(state.lidarr||'http://127.0.0.1:8686')}"/></label><label>API Key<input id="flow918-recovery-key" type="password" autocomplete="off" placeholder="Lidarr API key (not saved)"/></label></div>${btn('Reconnect for Verification','reconnect-checkpoint','primary',F.working)}</div>`:''}
+     <h3>1. Confirming artists and albums in Lidarr</h3>
+     <div class="fbar" role="progressbar" aria-label="Lidarr catalog items verified" aria-valuemin="0" aria-valuemax="${total||1}" aria-valuenow="${confirmed}"><i style="width:${confirmedPct}%"></i></div>
+     <div class="fsummary two"><div class="fnum"><b>${confirmed} / ${total}</b><span>Confirmed in Lidarr</span></div><div class="fnum"><b>${Math.max(0,total-confirmed)}</b><span>Still awaiting confirmation</span></div></div>
+     <h3>2. Sending requested actions</h3>
      <div class="fbar" role="progressbar" aria-label="Lidarr requests completed" aria-valuemin="0" aria-valuemax="${total}" aria-valuenow="${done}"><i style="width:${pct}%"></i></div>
      <div class="fsummary two"><div class="fnum"><b>${done} / ${total}</b><span>Requests checked</span></div><div class="fnum"><b>${s.failed||0}</b><span>Failed / needs attention</span></div></div>
-     <p class="muted">Lidarr may continue refreshing metadata and downloading in the background. This bar measures completed API requests, not finished music files.</p>
+     <p class="muted">Elapsed: ${elapsedLabel(elapsed)} · Estimated remaining: ${eta} · Request speed: ${rate?(rate*60).toFixed(1)+' / minute':'Calculating…'}</p>
+     <p class="muted">The final completion screen waits until all requested artists exist and selected albums are confirmed monitored in Lidarr. Searches, downloads and audio-file imports can continue independently afterward.</p>
+     ${s.done&&!s.catalogComplete?`<div class="fsourcewarning"><strong>Not finished yet.</strong> ${Math.max(0,total-confirmed)} catalog item(s) remain unconfirmed${s.failed?`; ${s.failed} request(s) need attention`:''}. No completion celebration will appear until Lidarr confirms the full selected catalog and there are no request failures.</div>
+       <div class="fbuttons">${btn('Recheck Lidarr Catalog (Read Only)','recheck-lidarr','primary',!!s.rechecking||F.working||!s.endpointMatches)}${btn('Download Results CSV','download-import-report')}${btn('Exit Application','exit')}</div>`:''}
+     ${s.interrupted&&!s.done?`<div class="fbuttons">${btn('Recheck Previous Catalog (Read Only)','recheck-lidarr','primary',F.working||!s.endpointMatches)}${btn('Download Results CSV','download-import-report')}</div>`:''}
      <h3>Recent Results</h3>${events||'<div class="muted">Waiting for the first Lidarr response…</div>'}
    </section>${backgroundMarkup()}`;
  }
  function importResult(){
    const s=F.importStatus||{},total=s.total||0,failed=s.failed||0;
+   const unresolved=F.manualEntries.length;
+   const reviewRemaining=Number(state.reviewQueue?.reviewProgress?.artist?.unresolvedIdentities||0)+
+     Number(state.reviewQueue?.reviewProgress?.song?.unresolvedIdentities||0);
+   const fullBatch=!!(total&&s.catalogComplete&&!failed);
+   const showCelebration=fullBatch&&!unresolved&&!reviewRemaining&&!s.restored;
    return `<h1>Lidarr Import Results</h1><section class="fbox fcenter">
-     ${total&&!failed?confetti():''}
-     <h2>${total?(failed?'Completed with items needing attention':'Lidarr requests complete'):'No changes sent to Lidarr'}</h2>
+     ${showCelebration?confetti():''}
+     <h2>${fullBatch?(unresolved?`Selected catalog verified — ${num(unresolved)} source-only entries still need manual import`:'Selected music catalog confirmed in Lidarr'):'Catalog verification is not complete'}</h2>
      <div class="fsummary"><div class="fnum"><b>${s.addedArtists||0}</b><span>Artists added</span></div><div class="fnum"><b>${(s.monitoredAlbums||0)+(s.alreadyMonitoredAlbums||0)+(s.searchesQueued||0)}</b><span>Albums processed</span></div><div class="fnum"><b>${s.searchesQueued||0}</b><span>Searches queued</span></div></div>
+     <div class="fbar" role="progressbar" aria-label="Catalog verification complete" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${s.catalogComplete?100:0}"><i style="width:${s.catalogComplete?100:0}%"></i></div>
      <p>${E(s.phase||'No Lidarr changes requested.')}</p>
      <div class="fsourcewarning">An accepted artist or queued search is not a downloaded song. Check Lidarr Activity and Wanted to follow background metadata refreshes, downloads and file imports.</div>
+     ${unresolved||reviewRemaining?`<div class="fsourcewarning">This is a verified catalog batch, not a finished migration: ${num(unresolved)} saved source-only entries and ${num(reviewRemaining)} artist/song identities needing independent verification remain. Completion confetti is reserved until all source entries have a supported import outcome.</div>`:''}
      ${failed?`<p><strong>${failed} item(s) require attention.</strong> Download the results report before retrying; some writes may have succeeded.</p>`:''}
-     <div class="fbuttons">${total?btn('Download Results CSV','download-import-report'):''}${btn('← Migration Preview','open-preview')}${btn('Exit Application','exit')}${btn('Learn More','about','primary')}</div>
+     <div class="fbuttons">${total?btn('Download Results CSV','download-import-report'):''}${btn('← Migration Preview','open-preview')}${btn('Exit Application','exit')}${showCelebration?btn('Learn More','about','primary'):''}</div>
    </section>${backgroundMarkup()}${savedManualSummary()}`;
  }
  function progress(){const total=F.job.length,pct=total?Math.round(F.completed/total*100):0;const active=F.job[F.completed];return `<h1>Import Plan Progress</h1><section class="fbox"><div class="fnav"><h2>${F.failed?'An item needs attention':F.completed===total?'Complete':'Preparing your selected albums'}</h2><span class="fprogress">${pct}%</span></div><div class="fbar" role="progressbar" aria-label="Local import-plan progress" aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100"><i style="width:${pct}%"></i></div><div class="muted">${F.completed} of ${total} albums prepared</div>${active?`<section class="fpane" style="margin-top:13px"><h3>Currently Processing</h3><div class="fprofile">${art(active.artist)}<div><strong>${E(active.album)}</strong><div class="muted">${E(active.artist)}</div><div>${num(active.safeSongs)} source songs</div></div></div></section>`:''}</section><section class="fbox"><h2>Album Queue</h2>${F.job.map((a,i)=>`<div class="frow passive">${art(a.artist)}<div><strong>${E(a.album)}</strong><small>${num(a.safeSongs)} source songs</small></div><div style="margin-left:auto" class="muted">${i<F.completed?'✓ Prepared':i===F.completed&&!F.failed?'● Processing':i===F.completed?'Failed':'Pending'}</div></div>`).join('')}</section>${F.interrupted&&!F.failed?`<div class="fshort">This page was refreshed during local staging. Completed items have been checked against the server; no operation was repeated automatically.</div>${btn('Resume Preparation','resume-plan','primary')}`:''}${F.failed?`${warning()}${btn('Return to Migration Preview','open-preview')}`:''}`}
@@ -451,10 +479,10 @@
    ${F.gh.authorized?btn('★ Star on GitHub','github-star','primary',F.working):F.gh.userCode?`<div class="fnum"><b style="letter-spacing:2px">${E(F.gh.userCode)}</b><span>GitHub authorization code</span></div><p>${btn('Open GitHub Sign-In','github-open')}${btn('Copy Code','github-copy')}</p><p class="muted">Sign in to GitHub, enter this code, and approve the app. The star itself is a separate click.</p>`:btn('Connect GitHub to Star','github-start','primary',F.working)}
    ${F.gh.error?`<div class="ferror">${E(F.gh.error)}</div>`:''}</div>`;
  }
- function completed(){const songCount=F.job.reduce((n,x)=>n+x.safeSongs,0);return `<div class="fbox fcelebrate fcenter">${confetti()}<div class="fcontent"><div class="fcheck">✓</div><h1>Congratulations!</h1><p class="fstatus">Your local import plan is complete.</p><div class="fbar"><i style="width:100%"></i></div><div class="fstatus">100% Complete</div><div class="fsummary two" style="max-width:370px;margin:15px auto"><div class="fnum"><b>${F.job.length}</b><span>Albums</span></div><div class="fnum"><b>${num(songCount)}</b><span>Songs</span></div></div><div class="fbuttons">${btn('Exit Application','exit')}${btn('Learn More About the Developer','about','primary')}</div></div></div>${savedManualSummary()}${githubMarkup()}`;}
+ function completed(){const songCount=F.job.reduce((n,x)=>n+x.safeSongs,0);return `<div class="fbox fcenter"><div class="fcontent"><h1>Album selection prepared</h1><p class="fstatus">${F.job.length} albums covering ${num(songCount)} source songs were staged locally. Nothing has been added to Lidarr yet.</p><div class="fbuttons">${btn('Continue to Finalize Lidarr Import','open-final','primary')}${btn('← Migration Preview','open-preview')}</div></div></div>${savedManualSummary()}`;}
  function about(){return `<h1>About the Developer</h1><section class="fbox fabout"><div class="fprofile">${art('Gost1o1')}<div><h2>Quinton Burgess</h2><strong>aka Gost1o1</strong></div></div><div class="fsep"></div><h2>Why I Created This Project</h2><p>I created YouTube Music Takeout to Lidarr to help you <strong>de-Google your life</strong> and easily import your YouTube Music collection into Lidarr, so you can manage your music without paying for another subscription service.</p><h2>Find Me Online</h2><div class="fbuttons"><a class="fbtn" href="https://www.Gost1o1.pro" target="_blank" rel="noopener noreferrer">Website ↗</a><a class="fbtn" href="https://m.twitch.tv/gost1o1/" target="_blank" rel="noopener noreferrer">Twitch ↗</a><a class="fbtn" href="https://www.youtube.com/@Gost1o1" target="_blank" rel="noopener noreferrer">YouTube ↗</a></div><h2>Questions or Bugs?</h2><p>If you encounter an error, email <a class="flink" href="mailto:gost1o1@gost1o1.pro?subject=YouTube%20Music%20to%20Lidarr%20Support">gost1o1@gost1o1.pro</a>. Please include screenshots, videos, error messages or anything else that helps show what happened. I'll work to investigate and fix it.</p><p><strong>Have a wonderful rest of your day, and thanks for using this tool!</strong></p><p class="muted">Developed with assistance from OpenAI ChatGPT (GPT-6). This credit identifies the assistant used in development; specific responses may use different product configurations.</p>${githubMarkup()}<div class="fbuttons">${btn('← Back','complete')}${btn('Exit Application','exit','primary')}</div></section>`;}
  function view(){switch(F.page){case 'manual':return manual();case 'fallback':return manualFallback();case 'preview':return preview();case 'final':return final();case 'import-progress':return importProgress();case 'import-result':return importResult();case 'progress':return progress();case 'complete':return completed();case 'about':return about();case 'exit':return `<section class="fbox fcenter"><div class="fcheck">✓</div><h1>Thanks for using this tool!</h1><p>The application is closing.</p></section>`;default:return ''}}
- F.render=function(){if(!F.active)return;el.innerHTML=`<div id="flow918"><div class="build-version">YouTube Music to Lidarr · v0.9.1.15.6</div>${F.page==='manual'&&F.classifying?classificationPage():view()}${warning()}</div>`;if(F.page==='manual'&&!F.classifying){recordReviewVisit();enrichCurrentReview()}if(typeof rememberNavigation==='function')rememberNavigation();};
+ F.render=function(){if(!F.active)return;const changedPage=F.lastRenderedPage!==F.page;el.innerHTML=`<div id="flow918"><div class="build-version">YouTube Music to Lidarr · v0.9.1.15.8</div>${F.page==='manual'&&F.classifying?classificationPage():view()}${warning()}</div>`;F.lastRenderedPage=F.page;if(changedPage&&typeof window.scrollTo==='function')window.scrollTo({top:0,behavior:'auto'});if(F.page==='manual'&&!F.classifying){recordReviewVisit();enrichCurrentReview()}if(typeof rememberNavigation==='function')rememberNavigation();};
  F.captureNavigation=()=>({
    page:F.page,reviewKind:F.reviewKind,reviewIndex:{...F.reviewIndex},
    reviewKey:{artist:recordsFor('artist')[F.reviewIndex.artist]?.key||'',song:recordsFor('song')[F.reviewIndex.song]?.key||''},
@@ -578,14 +606,42 @@
    if(!F.active||!['import-progress','import-result'].includes(F.page))return;
    try{
      F.importStatus=await api('lidarr/import/status');
-     if(F.importStatus.running){F.page='import-progress';F.render();F.importPoll=setTimeout(pollImport,1000)}
-     else if(F.importStatus.done){F.page='import-result';F.render()}
+     if(F.importStatus.catalogComplete){F.page='import-result';F.render()}
+     else if(F.importStatus.total>0){
+       F.page='import-progress';F.render();F.importPoll=setTimeout(pollImport,F.importStatus.rechecking?1500:3000)
+     }
      else{F.error='Lidarr import status was lost; no new writes were sent automatically.';F.page='preview';F.render()}
    }catch(err){
      F.error='Could not refresh Lidarr progress: '+err.message;F.render();
      F.importPoll=setTimeout(pollImport,3000);
    }
  }
+ async function recheckLidarrCatalog(){
+   if(F.working||F.importStatus?.rechecking)return;
+   F.working=true;F.error='';F.render();
+   try{await api('lidarr/import/recheck');F.importStatus={...F.importStatus,rechecking:true};await pollImport()}
+   catch(err){F.error='Could not recheck Lidarr catalog: '+err.message;F.render()}
+   finally{F.working=false}
+ }
+ async function reconnectCheckpoint(){
+   if(F.working)return;
+   const url=document.getElementById('flow918-recovery-url')?.value||'';
+   const key=document.getElementById('flow918-recovery-key')?.value||'';
+   if(!key){F.error='Enter your original Lidarr API key to run the read-only comparison.';F.render();return}
+   F.working=true;F.error='';
+   try{
+     await api('lidarr/import/connect',{url,key});
+     state.lidarr=url;F.importStatus=await api('lidarr/import/status');
+     await api('lidarr/import/recheck');
+     F.importStatus={...F.importStatus,rechecking:true};
+     void pollImport();
+   }catch(e){F.error='Could not reconnect to the original Lidarr: '+e.message}
+   finally{F.working=false;F.render()}
+ }
+ F.openRecoveredImport=function(status){
+   F.active=true;F.importStatus=status;F.page='import-progress';F.manualEntries=[];
+   F.render();void pollImport();void pollBackground();
+ };
  async function startLidarrImport(){
    if(F.working||!F.importOptions||F.importMode==='search'&&!F.searchConfirmed)return;
    F.working=true;F.error='';F.render();
@@ -660,11 +716,12 @@
  async function saveAndNext(){stopReviewAudio();const x=current(),sel=selectedChoice(x);
    if(!x&&F.reviewKind==='artist'){F.reviewKind='song';F.render();return}
    if(!x||sel===null||!mediaLoaded(x)||visibleCandidates(x).length===0)return;
-   const nextRecord=records()[F.reviewIndex[F.reviewKind]+1];
+  const nextRecord=records()[F.reviewIndex[F.reviewKind]+1];
    if(nextRecord&&!mediaLoaded(nextRecord))return;F.working=true;F.render();try{
   const c=candidates(x),none=sel===-1;
   await api('review/decision',{key:x.key,disposition:none?'needs-research':'candidate-for-planning',candidateId:none?'':c[sel].id,note:''});
   x.disposition=none?'needs-research':'candidate-for-planning';x.selected=none?'':c[sel].id;
+  await refreshManualQueue(false);
   delete F.choice[x.key];
   if(!nextRecord&&F.reviewKind==='artist'){
     F.reviewKind='song';
@@ -750,7 +807,9 @@
    case 'open-manual':stopReviewAudio();F.page='manual';F.render();break;
    case 'open-final':F.page='final';F.render();await loadImportOptions();break;
    case 'retry-import-settings':await loadImportOptions();break;
+   case 'reconnect-checkpoint':await reconnectCheckpoint();break;
    case 'start-lidarr-import':await startLidarrImport();break;
+   case 'recheck-lidarr':await recheckLidarrCatalog();break;
    case 'finish-without':F.importStatus={done:true,running:false,total:0,completed:0,failed:0,phase:'No Lidarr changes were requested.',events:[]};F.page='import-result';F.render();break;
    case 'download-import-report':await downloadImportReport();break;
    case 'confirm':await preparePlan();break;

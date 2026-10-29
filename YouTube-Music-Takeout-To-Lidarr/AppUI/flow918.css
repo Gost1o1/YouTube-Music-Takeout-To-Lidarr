@@ -50,3 +50,13 @@
 #flow918 .fbar.fbusy i{width:30%;background:#1ba552;animation:flow918busy 1.5s ease-in-out infinite alternate}
 @keyframes flow918busy{from{transform:translateX(0)}to{transform:translateX(230%)}}
 @media(prefers-reduced-motion:reduce){#flow918 .fbar.fbusy i{animation:none;width:100%;opacity:.45}}
+
+/* v0.9.1.15.7: prevent 1,000+ selected albums stretching the final screen. */
+#flow918 .fselected-albums{border:1px solid #cde7d3;border-radius:10px;margin:13px 0;background:#fcfefc}
+#flow918 .fselected-albums summary{cursor:pointer;padding:12px 15px;font-weight:750;color:#07582d}
+#flow918 .fselected-albums summary:focus-visible{outline:2px solid #18a94b;outline-offset:2px}
+#flow918 .fselected-list{border-top:1px solid #cde7d3;padding:4px 10px;max-height:330px;overflow:auto}
+
+/* v0.9.1.15.8: keep long migration previews usable after Back/Select All. */
+#flow918 .fpreview-list{max-height:490px;overflow-y:auto;overscroll-behavior:contain;border:1px solid #d4e9d9;border-radius:12px;padding:6px 11px;margin-top:12px;background:#fff}
+#flow918 .fpreview-list:focus-visible{outline:2px solid #198b3e;outline-offset:2px}

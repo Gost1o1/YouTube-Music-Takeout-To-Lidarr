@@ -107,7 +107,20 @@ a,td a{color:#087a2c}
 @media(max-width:640px){.review-entry .review-fields{grid-template-columns:1fr}}
 </style></head><body><main id="app"></main><script>
 const SESSION='__LOCAL_SESSION_TOKEN__';
-const BUILD_VERSION='v0.9.1.15.6';
+const BUILD_VERSION='v0.9.1.15.8';
+// The EXE belongs to its app tab(s), not the entire browser process. Keep the
+// same ID across refresh; only the final closed tab asks the server to exit.
+const TAB_STORAGE_KEY='ytm-lidarr-tab-v1:'+SESSION;
+let appTabId=sessionStorage.getItem(TAB_STORAGE_KEY);
+if(!appTabId){appTabId=crypto.randomUUID();sessionStorage.setItem(TAB_STORAGE_KEY,appTabId)}
+function sendTabLifecycle(path,keepalive=false){
+ return fetch('/api/'+path,{method:'POST',headers:{'Content-Type':'application/json','X-Local-Session':SESSION},
+   body:JSON.stringify({tabId:appTabId}),keepalive,cache:'no-store'}).catch(()=>{});
+}
+void sendTabLifecycle('heartbeat');
+setInterval(()=>void sendTabLifecycle('heartbeat'),7000);
+window.addEventListener('pageshow',()=>void sendTabLifecycle('heartbeat'));
+window.addEventListener('pagehide',()=>void sendTabLifecycle('app/tab-close',true));
 function durationLabel(seconds){if(seconds==null||!Number.isFinite(seconds)||seconds<0)return 'Calculating…';seconds=Math.floor(seconds);const h=Math.floor(seconds/3600),m=Math.floor(seconds%3600/60),sec=seconds%60;return h?`${h}h ${m}m`:m?`${m}m ${sec}s`:`${sec}s`}
 function etaMarkup(v,total,checked){const elapsed=v.elapsedSeconds||0;if(v.importedAuditOnly)return `<div class="eta-block" aria-live="off"><div><span>Evidence source</span><strong>Imported CSV</strong></div><div><span>Full verification</span><strong>Not run</strong></div><div><span>Processing time</span><strong>Not applicable</strong></div></div>`;const passTwo=(v.phase||'').startsWith('Second pass');const focused=(v.phase||'').startsWith('Album-focused');const secondTotal=v.secondPassTotal||0;const secondDone=v.secondPassDone||0;let remaining=null;let speed='Calculating…';if(elapsed>=30&&checked>=10){const rate=checked/elapsed;speed=`${(rate*60).toFixed(1)} songs/min`;if(focused&&(v.focusedDone||0)>=5){const elapsedFocused=Math.max(1,elapsed-(v.firstPassSeconds||0));remaining=((v.focusedTotal||0)-(v.focusedDone||0))*elapsedFocused/Math.max(1,v.focusedDone||1)}else if(passTwo&&secondDone>=5){const secondElapsed=Math.max(1,elapsed-(v.firstPassSeconds||0));remaining=(secondTotal-secondDone)*secondElapsed/Math.max(1,secondDone)}else if(!passTwo){remaining=(total-checked)/rate;}}const status=!v.running?(v.failed?'Stopped: error':v.cancelled?'Cancelled':'Complete'):focused?'Album-focused follow-up':passTwo?'Second verification pass':'First verification pass';const eta=!v.running?(v.failed||v.cancelled?'Unavailable':'Finished'):focused&&(v.focusedDone||0)<5?'Calculating album follow-up…':passTwo&&secondDone<5?'Recalculating for second pass…':durationLabel(remaining);return `<div class="eta-block" aria-live="off"><div><span>Elapsed time</span><strong>${durationLabel(elapsed)}</strong></div><div><span>Estimated remaining</span><strong>${eta}</strong></div><div><span>Verification speed</span><strong>${speed}</strong></div></div>`}
 const state={step:1,archive:'',tracks:[],artists:[],lidarr:'http://127.0.0.1:8686',key:'',busy:false,error:'',connectionStage:'',verificationStage:'progress',pipeline:null,found:false,hasData:false,verify:null,verifyPolling:false,catalog:null,catalogPolling:false,recovery:null,recoveryPolling:false,inventory:null,inventoryPolling:false,releaseGroups:[],releaseGroupsLoaded:false,inventoryItems:[],inventoryItemsLoaded:false,inventoryListCategory:"",inventoryListType:"song",stagingQueue:[],stagingLoaded:false,stagingSelected:new Set(),stagingFilter:"",reviewQueue:null,reviewFilter:"",reviewMode:"all"};
@@ -515,7 +528,7 @@ async function restoreNavigationOnLoad(){
  const checkpoint=readNavigation();
  let connectedToServer=false;
  try{
-  const [p,s]=await Promise.all([api('pipeline/status'),api('state')]);
+  const [p,s,priorImport]=await Promise.all([api('pipeline/status'),api('state'),api('lidarr/import/status')]);
   state.archive=s.archive||'';
   state.tracks=s.tracks||[];
   state.found=!!s.lidarrConnected;
@@ -523,6 +536,18 @@ async function restoreNavigationOnLoad(){
   state.lidarr=s.lidarrUrl||state.lidarr;
   state.pipeline=p;
   connectedToServer=true;
+  if(priorImport?.checkpointUnreadable){
+    state.error='A previous Lidarr import checkpoint cannot be read. New Lidarr writes are blocked to prevent duplicate searches. Preserve the checkpoint in Documents\\MusicTakeoutToolkit for diagnosis.';
+    render();return;
+  }
+  // A new EXE session loses its live Takeout comparison, but its import audit
+  // survives. Surface that first: never silently repeat a partially sent batch.
+  if(priorImport?.restored&&priorImport.total>0&&!p.running&&!p.done&&!checkpoint?.flow){
+    state.step=6;
+    navigationReady=true;
+    window.Flow918?.openRecoveredImport(priorImport);
+    return;
+  }
   const running=!!p.running,finished=!!p.done,failed=!!p.failed;
   const hasPipeline=running||finished||failed;
   let step=Number(checkpoint?.step);
