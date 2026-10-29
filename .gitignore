@@ -1,0 +1,10 @@
+bin/
+obj/
+publish/
+*.user
+*.log
+*.zip
+*.csv
+*.key
+*.pfx
+*.p12
