@@ -39,7 +39,8 @@ The downloaded Windows build is self-contained; **you do not need PowerShell or 
 - Compares planned additions with your existing Lidarr library before any changes.
 - On your explicit approval, adds missing verified artists and monitors chosen, track-backed albums already known to Lidarr.
 - Optionally queues Lidarr album searches, with progress and a downloadable results report.
-- Saves a crash-safe import checkpoint to your Documents folder so a restarted app can inspect past actions and recheck Lidarr without automatically repeating album searches.
+- Preloads pending artist and song review details in the background, with a small limit on simultaneous metadata requests.
+- Keeps runtime logs, review decisions, manual source metadata and import checkpoints in a temporary `RunData` folder beside the EXE. Normally removes them when the app exits; if an import is interrupted while a Lidarr write is uncertain, it retains the local checkpoint to avoid unsafe repeated writes.
 
 **What it cannot do yet:** Your YouTube Takeout is metadata, not audio files. The tool cannot upload or recreate songs from that metadata. Unverified and source-only manual entries stay in the app for later review or manual import. Two separate progress bars show **Lidarr requests checked** and **artists/albums confirmed in Lidarr**. Final completion means the selected catalog entries exist and albums are monitored—it does **not** mean the audio files are downloaded. Lidarr's searches and downloads may continue afterward.
 
@@ -47,7 +48,9 @@ The downloaded Windows build is self-contained; **you do not need PowerShell or 
 
 **Privacy:** Your Takeout archive and Lidarr API key stay on your computer. Optional catalog lookups send relevant artist/song terms to their providers. See [Security & privacy](SECURITY.md).
 
-The local import checkpoint contains album/artist names, identifiers and results (but no API keys). Protect it as you would your other music-library metadata.
+**Review state is temporary by request.** Leaving the application normally removes the EXE's `RunData` copies, including saved review decisions. Reopening it therefore cannot resume those decisions unless you retained a separate export or older legacy copy. To prevent losing existing work when upgrading, the app reads (but does not delete or change) up to three legacy state files from your old `Documents\MusicTakeoutToolkit` directory and copies them under `RunData` when needed. Confirm a successful import or export before removing the originals yourself.
+
+The local import checkpoint contains artist/album identifiers, outcomes and the Lidarr URL fingerprint, but no API key. It may remain under `RunData` if an import was interrupted; the app never blindly resends an uncertain Lidarr write. See [Every app-controlled data location](YouTube-Music-Takeout-To-Lidarr/docs/DATA-LOCATIONS.md) for paths, old-version leftovers, cleanup boundaries and browser storage.
 
 ## Need help?
 
