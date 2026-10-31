@@ -9,6 +9,7 @@
     <SelfContained>true</SelfContained>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <PublishTrimmed>false</PublishTrimmed>
+    <DebugType Condition="'$(Configuration)' == 'Release'">none</DebugType>
   </PropertyGroup>
   <ItemGroup>
     <Content Include="AppUI\index.html" CopyToOutputDirectory="PreserveNewest" />

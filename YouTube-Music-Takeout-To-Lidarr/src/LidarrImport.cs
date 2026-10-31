@@ -60,8 +60,7 @@ sealed partial class DesktopServer
     LidarrWriteState importWrite = new();
     CancellationTokenSource? importCancellation;
     bool importCheckpointUnreadable;
-    string ImportCheckpointPath => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
-        "MusicTakeoutToolkit", "lidarr-import-checkpoint-v1.json");
+    string ImportCheckpointPath => Path.Combine(runtimeDir, "lidarr-import-checkpoint-v1.json");
     static string EndpointHash(string value) => Convert.ToHexString(
         System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(value.TrimEnd('/').ToLowerInvariant())));
 

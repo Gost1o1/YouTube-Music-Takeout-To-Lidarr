@@ -22,7 +22,10 @@ sealed partial class DesktopServer
     readonly string token = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
     readonly List<Track> tracks = new();
     readonly object gate = new();
-    readonly string logDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "MusicTakeoutToolkit", "dotnet-logs");
+    // All app-controlled runtime files live alongside the portable EXE. Never
+    // create a Documents or media-drive workspace just to run this application.
+    readonly string runtimeDir = Path.Combine(AppContext.BaseDirectory, "RunData");
+    string logDir => Path.Combine(runtimeDir, "logs");
     string archive = "";
     string lidarrUrl = "http://127.0.0.1:8686";
     string lidarrKey = "";
@@ -102,6 +105,9 @@ sealed partial class DesktopServer
     public async Task RunAsync()
     {
         Directory.CreateDirectory(logDir);
+        try
+        {
+        CarryOverLegacyStateReadOnly();
         LoadImportCheckpoint();
         var portListener = new System.Net.Sockets.TcpListener(IPAddress.Loopback, 0);
         portListener.Start();
@@ -112,7 +118,7 @@ sealed partial class DesktopServer
         listener = server;
         server.Prefixes.Add(address);
         server.Start();
-        Console.WriteLine("YouTube Music to Lidarr — .NET v0.9.1.15.8 (durable checkpoints, accurate review progress)");
+        Console.WriteLine("YouTube Music to Lidarr — .NET v0.9.1.15.9 (background review preloading, portable runtime cleanup)");
         Console.WriteLine("No PowerShell scripts are run. No changes to Windows execution policy.");
         Console.WriteLine("Lidarr changes require explicit final-step approval. Source metadata cannot create audio files.");
         Console.WriteLine("Local address: " + address);
@@ -139,6 +145,58 @@ sealed partial class DesktopServer
         importCancellation?.Cancel();
         lidarrKey = "";
         githubAccessToken = null;
+        }
+        finally
+        {
+            // Never discard a checkpoint while a Lidarr write might still be
+            // in flight. The next launch can inspect and recheck it safely.
+            bool pendingWrite;
+            lock (importGate) pendingWrite = importWrite.Running || importWrite.Rechecking ||
+                !string.IsNullOrEmpty(importWrite.InFlightAction);
+            if (!pendingWrite) CleanupOwnedRuntimeFiles();
+            else Console.WriteLine("An import was interrupted; RunData was kept beside the EXE for safe reconciliation.");
+        }
+    }
+
+    void CarryOverLegacyStateReadOnly()
+    {
+        // Existing users may have thousands of review decisions from older
+        // builds. Import only these three known state files, read-only from
+        // Documents; NEVER delete or write to the historical directory.
+        var legacy = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "MusicTakeoutToolkit");
+        foreach (var name in new[] {
+            "review-decisions-v1.json", "manual-metadata-v1.json", "lidarr-import-checkpoint-v1.json" })
+        {
+            var previous = Path.Combine(legacy, name);
+            var local = Path.Combine(runtimeDir, name);
+            try
+            {
+                if (File.Exists(local) || !File.Exists(previous)) continue;
+                var info = new FileInfo(previous);
+                if (info.Length is <= 0 or > 3_000_000) continue;
+                File.Copy(previous, local, overwrite: false);
+            }
+            catch (IOException) { /* Existing state stays untouched. */ }
+            catch (UnauthorizedAccessException) { /* Portable app still starts. */ }
+        }
+    }
+
+    void CleanupOwnedRuntimeFiles()
+    {
+        // Deliberately no recursive delete: unexpected/user-created files in
+        // RunData must be left untouched. Only exact names this app owns go.
+        foreach (var name in new[] {
+            "review-decisions-v1.json", "review-decisions-v1.json.tmp",
+            "manual-metadata-v1.json", "manual-metadata-v1.json.tmp",
+            "lidarr-import-checkpoint-v1.json", "lidarr-import-checkpoint-v1.json.tmp" })
+        {
+            try { File.Delete(Path.Combine(runtimeDir, name)); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+        }
+        try { File.Delete(Path.Combine(logDir, "desktop.log")); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+        try { if (Directory.Exists(logDir) && !Directory.EnumerateFileSystemEntries(logDir).Any()) Directory.Delete(logDir); }
+        catch (IOException) { } catch (UnauthorizedAccessException) { }
+        try { if (Directory.Exists(runtimeDir) && !Directory.EnumerateFileSystemEntries(runtimeDir).Any()) Directory.Delete(runtimeDir); }
+        catch (IOException) { } catch (UnauthorizedAccessException) { }
     }
 
     async Task HandleAsync(HttpListenerContext ctx)
@@ -243,9 +301,14 @@ sealed partial class DesktopServer
                     BeginUnifiedPipeline(pipelineSource);
                     await Respond(ctx, 200, new { started = true }); return;
                 case "/api/app/exit":
+                {
+                    bool importBusy;
+                    lock (importGate) importBusy = importWrite.Running || importWrite.Rechecking;
+                    if (importBusy) { await Respond(ctx, 409, new { error = "Lidarr import or catalog confirmation is still running. Wait for it to finish before exiting safely." }); return; }
                     await Respond(ctx, 200, new { ok = true });
                     _ = Task.Run(async () => { await Task.Delay(250); try { appStop?.Cancel(); listener?.Stop(); } catch { } });
                     return;
+                }
                 case "/api/github/status": await Respond(ctx, 200, GitHubStatus()); return;
                 case "/api/github/authorize/start": await Respond(ctx, 200, await BeginGitHubDeviceAuthorization()); return;
                 case "/api/github/authorize/poll": await Respond(ctx, 200, await PollGitHubAuthorization()); return;

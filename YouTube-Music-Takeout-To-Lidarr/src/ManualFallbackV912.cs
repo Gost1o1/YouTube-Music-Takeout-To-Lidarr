@@ -19,8 +19,7 @@ sealed partial class DesktopServer
         public DateTimeOffset UpdatedUtc { get; set; }
     }
     readonly object manualFallbackLock = new();
-    string ManualFallbackFile => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
-        "MusicTakeoutToolkit", "manual-metadata-v1.json");
+    string ManualFallbackFile => Path.Combine(runtimeDir, "manual-metadata-v1.json");
     static bool UsefulManualField(string? value)
     {
         if (string.IsNullOrWhiteSpace(value)) return false;

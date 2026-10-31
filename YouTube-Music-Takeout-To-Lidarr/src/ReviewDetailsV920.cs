@@ -11,10 +11,19 @@ sealed partial class DesktopServer
     readonly Dictionary<string, ReviewMediaResult> reviewMediaCache = new(StringComparer.Ordinal);
     readonly object reviewMediaGate = new();
     readonly System.Collections.Concurrent.ConcurrentDictionary<string, Task<ReviewMediaResult>> sourceInfoTasks = new();
+    readonly System.Collections.Concurrent.ConcurrentDictionary<string, Task<ReviewMediaResult>> appleInfoTasks = new();
     Task<ReviewMediaResult> CachedYouTubeInfoAsync(string url)
     {
         if (sourceInfoTasks.Count > 3000) sourceInfoTasks.Clear();
         return sourceInfoTasks.GetOrAdd(url ?? "", u => TryYouTubeSourceInfoAsync(u));
+    }
+    Task<ReviewMediaResult> CachedAppleInfoAsync(string artist, string title)
+    {
+        // Distinct MusicBrainz recordings can have the same display title;
+        // reuse preview/artwork research without merging those identities.
+        if (appleInfoTasks.Count > 3000) appleInfoTasks.Clear();
+        var cacheKey = artist.Trim().ToUpperInvariant() + "\n" + title.Trim().ToUpperInvariant();
+        return appleInfoTasks.GetOrAdd(cacheKey, _ => FindAppleReviewMediaAsync(artist, title));
     }
     void InvalidateReviewMedia(string key)
     {
@@ -169,7 +178,7 @@ sealed partial class DesktopServer
         // When reviewing a recording, the artist comes from the Takeout; when
         // reviewing an artist, it uses the identified MB artist name where available.
         var lookupArtist = item.Kind == "artist" ? name : overrides?.Artist ?? item.Artist;
-        var media = await FindAppleReviewMediaAsync(lookupArtist, title);
+        var media = await CachedAppleInfoAsync(lookupArtist, title);
         if (candidateId.Length == 0)
         {
             var sourceInfo = await CachedYouTubeInfoAsync(overrides?.YouTubeUrl ?? item.YouTubeUrl);
@@ -188,7 +197,9 @@ sealed partial class DesktopServer
                 ? "Metadata lookup failed: MusicBrainz candidate title could not be confirmed."
                 : media.Availability
         };
-        lock (reviewMediaGate) { if (reviewMediaCache.Count > 300) reviewMediaCache.Clear(); reviewMediaCache[cacheKey] = result; }
+        // An entire review queue may contain more than 300 media candidates.
+        // Keep them warm across an in-app refresh without unbounded caching.
+        lock (reviewMediaGate) { if (reviewMediaCache.Count > 4096) reviewMediaCache.Clear(); reviewMediaCache[cacheKey] = result; }
         await Respond(ctx, 200, result);
     }
     static void ReviewMediaSelfTests()

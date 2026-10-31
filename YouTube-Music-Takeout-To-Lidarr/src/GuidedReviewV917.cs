@@ -28,8 +28,7 @@ sealed partial class DesktopServer
     }
     readonly Dictionary<string, ReviewBookmark> reviewLedger = new(StringComparer.Ordinal);
     bool reviewLedgerLoaded;
-    string ReviewLedgerPath => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
-        "MusicTakeoutToolkit", "review-decisions-v1.json");
+    string ReviewLedgerPath => Path.Combine(runtimeDir, "review-decisions-v1.json");
     static string ReviewKey(string kind, string source) => kind + ":" +
         Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(source))).Substring(0, 32);
     static string ReviewArtistSource(string name) => name.Trim().ToUpperInvariant();
