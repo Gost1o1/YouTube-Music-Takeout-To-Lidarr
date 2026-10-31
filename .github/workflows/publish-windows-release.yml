@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Release tag, for example v0.9.1.15.6'
+        description: 'Release tag, for example v0.9.1.15.9'
         required: true
         type: string
       prerelease:
@@ -48,6 +48,7 @@ jobs:
             'tools/offline_v091154_song_titles_history.js',
             'tools/offline_v091155_review_progress_provenance.js',
             'tools/offline_v091156_lidarr_import.js',
+            'tools/offline_v091159_preload_portability.js',
             'tools/offline_v0918_ui_smoke.js',
             'tools/offline_v0921_navigation_resume.js'
           ) | ForEach-Object {
@@ -68,7 +69,8 @@ jobs:
           ) | ForEach-Object {
             if (-not (Test-Path -LiteralPath $_)) { throw "Missing release file: $_" }
           }
-          Compress-Archive -Path 'publish/*' -DestinationPath 'YouTubeMusicToLidarr-win-x64.zip' -Force
+          # Explicit allowlist: do not ship .pdb symbols or intermediate data.
+          Compress-Archive -Path 'publish/YouTubeMusicToLidarr.exe', 'publish/AppUI' -DestinationPath 'YouTubeMusicToLidarr-win-x64.zip' -Force
           Get-FileHash 'YouTubeMusicToLidarr-win-x64.zip' -Algorithm SHA256 | Format-List
       - name: Create GitHub Release with Windows download
         shell: pwsh
