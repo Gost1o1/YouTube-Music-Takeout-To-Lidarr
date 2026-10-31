@@ -107,7 +107,7 @@ a,td a{color:#087a2c}
 @media(max-width:640px){.review-entry .review-fields{grid-template-columns:1fr}}
 </style></head><body><main id="app"></main><script>
 const SESSION='__LOCAL_SESSION_TOKEN__';
-const BUILD_VERSION='v0.9.1.15.8';
+const BUILD_VERSION='v0.9.1.15.9';
 // The EXE belongs to its app tab(s), not the entire browser process. Keep the
 // same ID across refresh; only the final closed tab asks the server to exit.
 const TAB_STORAGE_KEY='ytm-lidarr-tab-v1:'+SESSION;
@@ -129,6 +129,14 @@ const el=document.getElementById('app');
 // Store navigation and unsaved candidate choices only: NEVER save API keys,
 // GitHub OAuth tokens, Takeout contents, media URLs, or application secrets.
 const NAVIGATION_KEY='ytm-lidarr-navigation-v1:'+SESSION;
+// A browser crash can strand this tab's previous session keys. Only remove
+// keys owned by this app; never clear other websites' browser storage.
+try{for(let i=sessionStorage.length-1;i>=0;i--){
+ const k=sessionStorage.key(i);
+ if((k?.startsWith('ytm-lidarr-navigation-v1:')||k?.startsWith('ytm-lidarr-tab-v1:'))&&
+    k!==NAVIGATION_KEY&&k!==TAB_STORAGE_KEY)sessionStorage.removeItem(k);
+}}catch{}
+window.clearLocalSessionState=()=>{try{sessionStorage.removeItem(NAVIGATION_KEY);sessionStorage.removeItem(TAB_STORAGE_KEY)}catch{}};
 let navigationReady=false;
 function readNavigation(){
  try{
@@ -198,6 +206,7 @@ async function openUnifiedReview(){
 async function pollUnifiedPipeline(){
  try{
   const p=await api('pipeline/status');state.pipeline=p;
+  if(p.running&&p.phase==='lidarr')void window.Flow918?.prewarmDuringPipeline?.();
   if(state.step===6&&!window.Flow918?.active)render();
   if(p.running){setTimeout(pollUnifiedPipeline,1150);return}
   unifiedPolling=false;

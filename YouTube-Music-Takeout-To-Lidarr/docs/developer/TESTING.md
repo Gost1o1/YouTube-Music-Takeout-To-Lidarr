@@ -1,4 +1,19 @@
-# v0.9.1.15.8 — durable import checkpoints, accurate review progress, tab-close shutdown
+# v0.9.1.15.9 — EXE-local writes and background review preloading
+
+In addition to the existing import checks below:
+
+1. Run `node tools/offline_v091159_preload_portability.js` and all the selected CI regressions. This verifies preloading all artist/song bundles with at most three in-flight requests and no Documents writes in source.
+2. Start a verification on a disposable library. When pipeline phase changes to **lidarr**, confirm network requests for review candidate details begin **before** the Manual Review page appears. Verify the page remains on algorithm progress and the completed review cards open from cache.
+3. Before launching the new version, back up three legacy state JSONs from `Documents\MusicTakeoutToolkit`. Confirm saved reviews are read and carried over without modifying the originals.
+4. During use, check `RunData` directly beside the EXE for `review-decisions-v1.json`, `manual-metadata-v1.json`, `lidarr-import-checkpoint-v1.json` and `logs\desktop.log`. No new files should appear under Documents or `F:\MediaStaging`.
+5. Exit cleanly after a fully confirmed disposable import. `RunData` should disappear when no unknown files remain. Force-kill an **incomplete disposable** import and confirm its uncertain local checkpoint remains for safe read-only reconciliation; no blind repeat writes.
+6. Check the GitHub ZIP contains the EXE and `AppUI` and no `.pdb`, `bin`, `obj` or `RunData` contents. Confirm browser session keys are cleared on the explicit Exit button.
+
+**Caution:** Clean-exit cleanup deliberately removes review decisions in `RunData`. Do not delete original historical state before verifying your exports and new-version carryover. The detailed path inventory is in `../DATA-LOCATIONS.md`.
+
+---
+
+# Historical v0.9.1.15.8 checks — durable import checkpoints, accurate review progress, tab-close shutdown
 
 Before public release, test on Windows with a disposable Lidarr instance:
 
@@ -9,7 +24,7 @@ Before public release, test on Windows with a disposable Lidarr instance:
    Check artist and song counters independently and reload the tab.
 3. Select 1,000+ albums in Migration Preview and return from Finalize. Confirm
    the list remains in a bounded scroll region and selecting all survives.
-4. Approve a small dummy import. Verify the checkpoint is written to
+4. In v0.9.1.15.8, approve a small dummy import. Verify the checkpoint is written to
    `Documents\\MusicTakeoutToolkit\\lidarr-import-checkpoint-v1.json` before
    each Lidarr write and after each result. Never include the API key there.
 5. Force-stop a *disposable* test import mid-run, restart the EXE, and confirm

@@ -51,7 +51,7 @@ download destination.
 
 1. Wait for **Build and smoke-test Windows .NET** to pass on `main`.
 2. In GitHub **Actions**, select **Publish Windows download**.
-3. Click **Run workflow** and enter a new version tag, for example `v0.9.1.15.8`.
+3. Click **Run workflow** and enter a new version tag, for example `v0.9.1.15.9`.
 4. Leave **prerelease** checked while this application remains a preview.
 5. Wait for the workflow to build, test, and upload `YouTubeMusicToLidarr-win-x64.zip` to the new Release.
 6. Confirm the ZIP contains both `YouTubeMusicToLidarr.exe` and `AppUI/` and launches on Windows.

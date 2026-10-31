@@ -1,7 +1,7 @@
-/* v0.9.1.15.8 durable Lidarr checkpoints, truthful review progress and import lifecycle. */
+/* v0.9.1.15.9 bounded background preloading and portable runtime cleanup. */
 (() => {
  'use strict';
- const F={active:false,page:'manual',reviewKind:'artist',reviewIndex:{artist:0,song:0},reviewOrder:{artist:[],song:[]},reviewHistory:{artist:[],song:[]},choice:{},selected:new Set(),tab:'add',stageItems:[],job:[],completed:0,failed:false,gh:null,ghPoll:null,error:'',working:false,media:{},mediaLoading:new Set(),mediaPromises:new Map(),bundlePromises:new Map(),manualEntries:[],autoSaving:new Set(),autoAttempted:new Set(),autoFailed:new Set(),classifying:false,classifyStatus:null,classifyJob:null,editingEntry:null,youtubePlayer:null,audio:null,audioTimer:null,
+ const F={active:false,page:'manual',reviewKind:'artist',reviewIndex:{artist:0,song:0},reviewOrder:{artist:[],song:[]},reviewHistory:{artist:[],song:[]},choice:{},selected:new Set(),tab:'add',stageItems:[],job:[],completed:0,failed:false,gh:null,ghPoll:null,error:'',working:false,media:{},mediaLoading:new Set(),mediaPromises:new Map(),bundlePromises:new Map(),mediaRequestQueue:[],mediaRequestActive:0,preloadQueue:[],preloadActive:0,preloadKeys:new Set(),preloadAhead:false,prewarmStarted:false,manualEntries:[],autoSaving:new Set(),autoAttempted:new Set(),autoFailed:new Set(),classifying:false,classifyStatus:null,classifyJob:null,editingEntry:null,youtubePlayer:null,audio:null,audioTimer:null,
    importMode:'catalog',importOptions:null,includeArtists:true,searchConfirmed:false,importRoot:'',importQuality:0,importMetadata:0,importStatus:null,importPoll:null,lidarrBackground:null,backgroundPoll:null};
  const root=()=>document.getElementById('flow918');
  const E=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -82,23 +82,38 @@
    return `<div class="floading" aria-live="polite"><div class="floadhead"><strong>${E(prefix)}</strong><span>${p.pct}%</span></div><div class="floadbar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${p.pct}" aria-label="Matching details loaded"><i style="width:${p.pct}%"></i></div><div class="muted">${p.done} of ${p.total} metadata checks completed</div></div>`;
  }
  function mediaLoaded(x){return !!x && ['',...candidates(x).map(c=>c.id)].every(id=>Object.prototype.hasOwnProperty.call(F.media,mediaKey(x,id)))}
- function fetchReviewMedia(x,id=''){
+ // Keep the entire manual-review backlog warm without bursting 12 requests per
+ // candidate card at external services. A visible card gets request priority.
+ function drainMediaRequests(){
+   while(F.mediaRequestActive<3&&F.mediaRequestQueue.length){
+     const task=F.mediaRequestQueue.shift();F.mediaRequestActive++;
+     Promise.resolve().then(task.run).finally(()=>{F.mediaRequestActive--;drainMediaRequests()});
+   }
+ }
+ function fetchReviewMedia(x,id='',priority=false){
    const k=mediaKey(x,id);
    if(F.media[k])return Promise.resolve(F.media[k]);
    if(F.mediaPromises.has(k))return F.mediaPromises.get(k);
    F.mediaLoading.add(k);
-   const request=api('review/candidate/details',{key:x.key,candidateId:id})
-     .catch(e=>({Name:'',ArtworkUrl:'',PreviewUrl:'',Availability:'Metadata lookup failed: '+e.message}))
-     .then(m=>{F.media[k]=m;return m})
-     .finally(()=>{F.mediaLoading.delete(k);F.mediaPromises.delete(k);
-        if(F.active&&F.page==='manual'&&current()?.key===x.key)F.render();});
+   const request=new Promise(resolve=>{
+     const task={run:async()=>{
+       let result;
+       try{result=await api('review/candidate/details',{key:x.key,candidateId:id})}
+       catch(e){result={Name:'',ArtworkUrl:'',PreviewUrl:'',Availability:'Metadata lookup failed: '+e.message}}
+       F.media[k]=result;F.mediaLoading.delete(k);F.mediaPromises.delete(k);
+       if(F.active&&F.page==='manual'&&current()?.key===x.key)F.render();
+       resolve(result);
+     }};
+     if(priority)F.mediaRequestQueue.unshift(task);else F.mediaRequestQueue.push(task);
+     drainMediaRequests();
+   });
    F.mediaPromises.set(k,request);
    return request;
  }
  function ensureBundle(x,onlyPrefetch=false){
    if(!x)return Promise.resolve();
    if(F.bundlePromises.has(x.key))return F.bundlePromises.get(x.key);
-   const p=Promise.all(['',...candidates(x).map(c=>c.id)].map(id=>fetchReviewMedia(x,id)))
+   const p=Promise.all(['',...candidates(x).map(c=>c.id)].map(id=>fetchReviewMedia(x,id,!onlyPrefetch)))
       .then(()=>{
         if(F.active&&F.page==='manual'&&
           (current()?.key===x.key || records().findIndex(y=>y.key===x.key)===F.reviewIndex[F.reviewKind]+1)) F.render();
@@ -112,6 +127,50 @@
    F.bundlePromises.set(x.key,p);
    return p;
  }
+ function preloadStatus(){
+   const rows=[...recordsFor('artist'),...recordsFor('song')];
+   return {ready:rows.filter(mediaLoaded).length,total:rows.length};
+ }
+ function preloadLabel(){
+   const s=preloadStatus();
+   return s.total&&s.ready<s.total?`<div class="muted" aria-live="polite">Preparing reviews in the background: ${s.ready} of ${s.total} ready</div>`:'';
+ }
+ function pumpReviewPreload(){
+   if(!F.active&&!F.preloadAhead)return;
+   while(F.preloadActive<2&&F.preloadQueue.length){
+     const x=F.preloadQueue.shift();
+     if(!x||mediaLoaded(x)||F.bundlePromises.has(x.key))continue;
+     F.preloadActive++;
+     ensureBundle(x,true).catch(()=>{}).finally(()=>{
+       F.preloadActive--;
+       if(F.active&&F.page==='manual')F.render();
+       pumpReviewPreload();
+     });
+   }
+ }
+ function preloadManualReviews(){
+   const all=[...recordsFor('artist'),...recordsFor('song')];
+   const selected=current();
+   const prioritized=selected?[selected,...all.filter(x=>x.key!==selected.key)]:all;
+   for(const x of prioritized){
+     if(!x||F.preloadKeys.has(x.key)||mediaLoaded(x))continue;
+     F.preloadKeys.add(x.key);F.preloadQueue.push(x);
+   }
+   pumpReviewPreload();
+ }
+ // The matching pipeline publishes a stable review queue before its final
+ // read-only Lidarr comparison finishes. Preload then, while progress stays
+ // on the algorithm screen; do not switch pages or authorize any writes.
+ F.prewarmDuringPipeline=async()=>{
+   if(F.prewarmStarted)return;
+   F.prewarmStarted=true;
+   try{
+     const queue=await api('review/queue');
+     if(!Array.isArray(queue?.items))throw Error('Review queue not yet available');
+     state.reviewQueue=queue;F.preloadAhead=true;
+     preloadManualReviews();
+   }catch(_){F.prewarmStarted=false}
+ };
  async function refreshManualQueue(renderNow=true){
     const previous={};
     for(const kind of ['artist','song']){
@@ -131,7 +190,7 @@
     // No cached choice may silently carry over to a different review row.
     const valid=new Set((latest.items||[]).map(x=>x.key));
     for(const k of Object.keys(F.choice))if(!valid.has(k))delete F.choice[k];
-    F.error='';if(renderNow)F.render();
+    F.error='';preloadManualReviews();if(renderNow)F.render();
  }
  function recordsFor(kind){
    const rows=(state.reviewQueue?.items||[]).filter(x=>x.kind===kind),order=F.reviewOrder[kind];
@@ -185,7 +244,7 @@
    const pct=total?Math.round(n/total*100):0;
    return `<h1>Preparing Manual Review</h1><section class="fbox"><div class="floadhead"><strong>Checking artist and song metadata</strong><span>${pct}%</span></div>
      <div class="floadbar" role="progressbar" aria-label="Review preparation" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}"><i style="width:${pct}%"></i></div>
-     <div class="muted">${n} of ${total} metadata checks completed</div></section>`;
+     <div class="muted">${n} of ${total} metadata checks completed</div>${preloadLabel()}</section>`;
  }
  // The server files fully known zero-candidate songs during preflight. A song
  // may also have raw IDs that prove unusable only after its display metadata
@@ -323,7 +382,7 @@
    const nextReady=!forthcoming||mediaLoaded(forthcoming);
    const activeChoice=groups.find(g=>g.i===sel);
    const evid=sel===null||sel===-1||!activeChoice?[]:rankEvidence(x,activeChoice.c);
-   const header=`<h1>Manual Review</h1><div class="fstats">${progressCard('Artist Matching','artist')}${progressCard('Song Matching','song')}</div>`;
+   const header=`<h1>Manual Review</h1><div class="fstats">${progressCard('Artist Matching','artist')}${progressCard('Song Matching','song')}</div>${preloadLabel()}`;
    const tabs=`<div class="ftabs"><button class="${F.reviewKind==='artist'?'active':''}" data-flow="artists">Artist Review</button><button class="${F.reviewKind==='song'?'active':''}" data-flow="songs">Song Review</button></div>`;
    // Never display a source/candidate card until the review algorithm has
    // finished its per-item checks. Auto-filed cards are hidden completely.
@@ -482,7 +541,7 @@
  function completed(){const songCount=F.job.reduce((n,x)=>n+x.safeSongs,0);return `<div class="fbox fcenter"><div class="fcontent"><h1>Album selection prepared</h1><p class="fstatus">${F.job.length} albums covering ${num(songCount)} source songs were staged locally. Nothing has been added to Lidarr yet.</p><div class="fbuttons">${btn('Continue to Finalize Lidarr Import','open-final','primary')}${btn('← Migration Preview','open-preview')}</div></div></div>${savedManualSummary()}`;}
  function about(){return `<h1>About the Developer</h1><section class="fbox fabout"><div class="fprofile">${art('Gost1o1')}<div><h2>Quinton Burgess</h2><strong>aka Gost1o1</strong></div></div><div class="fsep"></div><h2>Why I Created This Project</h2><p>I created YouTube Music Takeout to Lidarr to help you <strong>de-Google your life</strong> and easily import your YouTube Music collection into Lidarr, so you can manage your music without paying for another subscription service.</p><h2>Find Me Online</h2><div class="fbuttons"><a class="fbtn" href="https://www.Gost1o1.pro" target="_blank" rel="noopener noreferrer">Website ↗</a><a class="fbtn" href="https://m.twitch.tv/gost1o1/" target="_blank" rel="noopener noreferrer">Twitch ↗</a><a class="fbtn" href="https://www.youtube.com/@Gost1o1" target="_blank" rel="noopener noreferrer">YouTube ↗</a></div><h2>Questions or Bugs?</h2><p>If you encounter an error, email <a class="flink" href="mailto:gost1o1@gost1o1.pro?subject=YouTube%20Music%20to%20Lidarr%20Support">gost1o1@gost1o1.pro</a>. Please include screenshots, videos, error messages or anything else that helps show what happened. I'll work to investigate and fix it.</p><p><strong>Have a wonderful rest of your day, and thanks for using this tool!</strong></p><p class="muted">Developed with assistance from OpenAI ChatGPT (GPT-6). This credit identifies the assistant used in development; specific responses may use different product configurations.</p>${githubMarkup()}<div class="fbuttons">${btn('← Back','complete')}${btn('Exit Application','exit','primary')}</div></section>`;}
  function view(){switch(F.page){case 'manual':return manual();case 'fallback':return manualFallback();case 'preview':return preview();case 'final':return final();case 'import-progress':return importProgress();case 'import-result':return importResult();case 'progress':return progress();case 'complete':return completed();case 'about':return about();case 'exit':return `<section class="fbox fcenter"><div class="fcheck">✓</div><h1>Thanks for using this tool!</h1><p>The application is closing.</p></section>`;default:return ''}}
- F.render=function(){if(!F.active)return;const changedPage=F.lastRenderedPage!==F.page;el.innerHTML=`<div id="flow918"><div class="build-version">YouTube Music to Lidarr · v0.9.1.15.8</div>${F.page==='manual'&&F.classifying?classificationPage():view()}${warning()}</div>`;F.lastRenderedPage=F.page;if(changedPage&&typeof window.scrollTo==='function')window.scrollTo({top:0,behavior:'auto'});if(F.page==='manual'&&!F.classifying){recordReviewVisit();enrichCurrentReview()}if(typeof rememberNavigation==='function')rememberNavigation();};
+ F.render=function(){if(!F.active)return;const changedPage=F.lastRenderedPage!==F.page;el.innerHTML=`<div id="flow918"><div class="build-version">YouTube Music to Lidarr · v0.9.1.15.9</div>${F.page==='manual'&&F.classifying?classificationPage():view()}${warning()}</div>`;F.lastRenderedPage=F.page;if(changedPage&&typeof window.scrollTo==='function')window.scrollTo({top:0,behavior:'auto'});if(F.page==='manual'&&!F.classifying){recordReviewVisit();enrichCurrentReview()}if(typeof rememberNavigation==='function')rememberNavigation();};
  F.captureNavigation=()=>({
    page:F.page,reviewKind:F.reviewKind,reviewIndex:{...F.reviewIndex},
    reviewKey:{artist:recordsFor('artist')[F.reviewIndex.artist]?.key||'',song:recordsFor('song')[F.reviewIndex.song]?.key||''},
@@ -524,6 +583,7 @@
        if(typeof k==='string'&&k.length<160&&Number.isInteger(v)&&v>=-1&&v<12)F.choice[k]=v;
    }
    F.active=true;F.error='';F.working=false;F.interrupted=false;
+   preloadManualReviews();
    if(page==='import-progress'||page==='import-result'){
      F.page='import-progress';F.render();void pollBackground();await pollImport();return;
    }
@@ -568,6 +628,7 @@
     if(Array.isArray(latest?.items))state.reviewQueue=latest;
     F.manualEntries=Array.isArray(state.reviewQueue?.manualItems)?state.reviewQueue.manualItems:[];
     F.active=true;F.page=page;
+    preloadManualReviews();
     if(page==='manual')F.classifying=true;
     if(page==='preview')await fetchStages();
     F.render();
@@ -762,6 +823,8 @@
       stopReviewAudio();
       await api('review/manual-metadata/restore',{key:saved.key});
       F.editingEntry={...saved};
+      for(const k of Object.keys(F.media))if(k.startsWith(saved.key+':'))delete F.media[k];
+      F.bundlePromises.delete(saved.key);F.preloadKeys.delete(saved.key);
       await refreshManualQueue();
       F.reviewKind=saved.kind==='song'?'song':'artist';
       F.reviewIndex[F.reviewKind]=Math.max(0,records().findIndex(v=>v.key===saved.key));
@@ -798,7 +861,7 @@
      try{
        await api('review/manual-metadata',payload);
        for(const k of Object.keys(F.media))if(k.startsWith(x.key+':'))delete F.media[k];
-       F.bundlePromises.delete(x.key);F.editingEntry=null;F.error='';F.page='manual';
+       F.bundlePromises.delete(x.key);F.preloadKeys.delete(x.key);F.editingEntry=null;F.error='';F.page='manual';
        // The server now excludes handled items, so the next item shifts into
        // this same index. No disabled Next-button dead end after saving.
        await refreshManualQueue();
@@ -820,7 +883,7 @@
    case 'github-open':window.open('https://github.com/login/device','_blank','noopener,noreferrer');break;
    case 'github-copy':if(navigator.clipboard&&F.gh?.userCode)await navigator.clipboard.writeText(F.gh.userCode);break;
    case 'github-star':await githubStar();break;
-   case 'exit':F.page='exit';F.render();try{await api('app/exit')}catch(_){}break;
+   case 'exit':try{await api('app/exit');F.page='exit';F.render();window.clearLocalSessionState?.()}catch(err){F.error=err.message;F.render()}break;
   }
  });
  document.addEventListener('change',e=>{
